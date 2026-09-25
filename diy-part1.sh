@@ -100,7 +100,7 @@ if [ "$ADD_EASYTIER" = "true" ]; then
 fi
 
 if [ "$ADD_THEME_AURORA" = "true" ]; then
-  clone https://github.com/eamonxg/luci-theme-aurora "$PKG_DIR/luci-theme-aurora" main
+  clone https://github.com/eamonxg/luci-theme-aurora "$PKG_DIR/luci-theme-aurora" master
 fi
 
 # ---------------------------------------------------------

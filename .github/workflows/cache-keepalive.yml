@@ -1,0 +1,27 @@
+name: Keep Toolchain Cache Alive
+
+# actions/cache 的条目 7 天不访问会被回收，
+# 每 5 天 touch 一次工具链缓存，保证常用机型不用每次重编工具链。
+on:
+  schedule:
+    - cron: '0 0 */5 * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Touch toolchain caches
+        uses: actions/cache/restore@v5
+        with:
+          path: /tmp/dummy
+          key: ponwrt-toolchain-
+          lookup-only: true   # 只检查不下载，几秒完成
+
+      - name: Touch dl caches
+        uses: actions/cache/restore@v5
+        continue-on-error: true
+        with:
+          path: /tmp/dummy
+          key: ponwrt-dl-master-
+          lookup-only: true

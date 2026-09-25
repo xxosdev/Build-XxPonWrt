@@ -1,0 +1,4 @@
+# 统一用 LF 入库并检出。
+# 理由：repo 里 .config 是 kconfig 输入、.sh 要在 Linux runner 上执行，
+# 一旦混入 CRLF，脚本会 bad interpreter、kconfig 的键值也可能带 \r。
+* text=auto eol=lf

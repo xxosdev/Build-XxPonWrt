@@ -32,6 +32,10 @@ ADD_TAILSCALE=false    # luci-app-tailscale
 ADD_OPENLIST=false     # luci-app-openlist2（alist/openlist 挂载）
 ADD_SMARTDNS=false     # luci-app-smartdns
 
+# --- 下方为新增的第三方插件开关 ---
+ADD_EASYTIER=true      # luci-app-easytier: EasyTier 组网
+ADD_THEME_AURORA=true  # luci-theme-aurora: Aurora 主题
+
 # ---------------------------------------------------------
 # 本地包：CI 仓库自带的包（不在任何 feed 里），拷进 package/custom
 # 目前有 luci-app-pon-status：把 PON 温度/收发光功率显示在概览页
@@ -66,13 +70,6 @@ if [ "$ADD_AIROHA_NPU" = "true" ]; then
 fi
 
 # --- passwall2 ---
-# 直接 clone 到 package/custom/luci-app-passwall2：luci.mk 用 $(notdir ${CURDIR}) 取包名，
-# 目录名必须等于包名（拿仓库名当目录名会符号对不上）
-# ⚠ aarch64 下 Makefile 的 INCLUDE_Shadowsocks_Rust_Client / Basic_Core_All 都是 default y，
-#   会自动带出 Rust 工具链（shadowsocks-rust: rust/host）和 Go 工具链（xray + sing-box）。
-#   想省时间在 configs/<机型>.config 里显式写 n：
-#     # CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client is not set
-#     CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray=y
 if [ "$ADD_PASSWALL2" = "true" ]; then
   clone https://github.com/Openwrt-Passwall/openwrt-passwall-packages "$PKG_DIR/openwrt-passwall-packages" main
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
@@ -104,6 +101,21 @@ if [ "$ADD_SMARTDNS" = "true" ]; then
   clone https://github.com/pymumu/luci-app-smartdns "$PKG_DIR/luci-app-smartdns" master
   clone https://github.com/pymumu/smartdns "$PKG_DIR/smartdns" master
 fi
+
+# --- easytier (新增) ---
+# 官方源不存在，必须克隆。包含核心组件与 LuCI 界面
+if [ "$ADD_EASYTIER" = "true" ]; then
+  clone https://github.com/EasyTier/luci-app-easytier "$PKG_DIR/luci-app-easytier" main
+fi
+
+# --- theme-aurora (新增) ---
+# 官方源不存在，必须克隆。
+if [ "$ADD_THEME_AURORA" = "true" ]; then
+  clone https://github.com/eamonxg/luci-theme-aurora "$PKG_DIR/luci-theme-aurora" main
+fi
+
+# 注意：luci-app-filemanager 包含在官方软件包仓库中，
+# 无需在此处进行 clone，直接在后续的 .config 或 diy-part2.sh 中开启编译即可。
 
 # ---------------------------------------------------------
 # 校验：默认开启的两个插件必须拉到，否则 defconfig 会静默剔除，

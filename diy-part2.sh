@@ -83,6 +83,19 @@ CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
 
+# --- 网络共享: Samba4 服务端及 LuCI 界面 ---
+CONFIG_PACKAGE_samba4-server=y
+CONFIG_PACKAGE_samba4-libs=y
+CONFIG_PACKAGE_luci-app-samba4=y
+CONFIG_PACKAGE_luci-i18n-samba4-zh-cn=y
+CONFIG_PACKAGE_wsdd2=y
+
+# --- 端口映射: UPnP IGD 与 PCP/NAT-PMP 服务 ---
+CONFIG_PACKAGE_miniupnpd=y
+CONFIG_PACKAGE_luci-app-upnp=y
+CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
+CONFIG_MINIUPNPD_PCP_PEER=y
+
 # --- Passwall 2 核心精准精简配置 (仅保留最新 Xray) ---
 CONFIG_PACKAGE_luci-app-passwall2=y
 

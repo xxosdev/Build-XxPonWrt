@@ -82,6 +82,8 @@ CONFIG_PACKAGE_etherwake=y
 CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
+# --- kmod-nft-queue主要用于fakehttp ---
+CONFIG_PACKAGE_kmod-nft-queue=y
 
 # --- 网络共享: Samba4 服务端及 LuCI 界面 ---
 CONFIG_PACKAGE_samba4-server=y

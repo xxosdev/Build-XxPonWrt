@@ -104,6 +104,19 @@ if [ "$ADD_THEME_AURORA" = "true" ]; then
 fi
 
 # ---------------------------------------------------------
+# 4.5 核心清理：清除官方 Feed 中的旧版，锁定 PassWall 最新版
+# ---------------------------------------------------------
+# 彻底移除官方 packages 源中的旧版 xray-core、sing-box 与规则包
+rm -rf feeds/packages/net/xray-core
+rm -rf feeds/packages/net/sing-box
+rm -rf feeds/packages/net/v2ray-geodata
+
+# 清除 feeds install 已经建立的旧软链接
+rm -rf package/feeds/packages/xray-core
+rm -rf package/feeds/packages/sing-box
+rm -rf package/feeds/packages/v2ray-geodata
+
+# ---------------------------------------------------------
 # 5. 校验与更新索引
 # ---------------------------------------------------------
 # 校验默认必须开启的包（防止 defconfig 剔除依赖）

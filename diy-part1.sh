@@ -23,7 +23,7 @@ ADD_MOSDNS=false       # luci-app-mosdns: DNS 防泄漏 + v2ray-geodata
 ADD_SMARTDNS=false     # luci-app-smartdns: DNS 加速
 
 # 网络与组网
-ADD_LUCKY=false        # luci-app-lucky: 大吉 (DDNS/端口转发/Socat)
+ADD_LUCKY=true        # luci-app-lucky: 大吉 (DDNS/端口转发/Socat)
 ADD_TAILSCALE=false    # luci-app-tailscale: 虚拟局域网
 ADD_EASYTIER=true      # luci-app-easytier: EasyTier 组网 (第三方源)
 
@@ -79,7 +79,7 @@ if [ "$ADD_MOSDNS" = "true" ]; then
 fi
 
 if [ "$ADD_LUCKY" = "true" ]; then
-  clone https://github.com/sirpdboy/luci-app-lucky "$PKG_DIR/luci-app-lucky" main
+  clone https://github.com/gdy666/luci-app-lucky "$PKG_DIR/luci-app-lucky" main
 fi
 
 if [ "$ADD_TAILSCALE" = "true" ]; then

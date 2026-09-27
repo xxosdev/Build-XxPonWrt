@@ -148,32 +148,23 @@ CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
 CONFIG_MINIUPNPD_PCP_PEER=y
 
-# --- Passwall 2 核心精准精简配置 (仅保留最新 Xray) ---
+# --- Passwall 2 主程序与精确核心配置 ---
 CONFIG_PACKAGE_luci-app-passwall2=y
-CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
-CONFIG_PACKAGE_xray-core=y
-CONFIG_PACKAGE_geoview=y
-CONFIG_PACKAGE_v2ray-geoip=y
-CONFIG_PACKAGE_v2ray-geosite=y
 
-# 3. 彻底禁用 Sing-Box
-# CONFIG_PACKAGE_sing-box is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_SingBox is not set
+# 强制关闭全量核心 (防止带出所有依赖)
+# CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_All is not set
 
-# 4. 彻底禁用其他所有非必要核心 (节省 ROM 并避免耗时编译)
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria2 is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Tuic is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy is not set
+# 开启 Xray 和 Sing-box 核心
+CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray=y
+#CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Sing_Box=y
+
+# 强制关闭 Rust 核心及其他不必要组件，极大缩短编译时间
 # CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client is not set
 # CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Server is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Libev_Client is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Libev_Server is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Server is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Trojan_Plus is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_V2ray_Plugin is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Simple_Obfs is not set
+# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria is not set
+# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Tuic is not set
+# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy is not set
+
 
 EOF
   echo "✅ 公共软件包及 Passwall2 核心配置已注入 .config"

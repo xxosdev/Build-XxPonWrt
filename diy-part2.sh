@@ -59,7 +59,7 @@ if [ -f .config ]; then
 fi
 
 # ---------------------------------------------------------
-# 4. 下载 Xray-core 官方预编译二进制 (arm64 架构)
+# 5. 下载 Xray-core 官方预编译二进制 (arm64 架构)
 # ---------------------------------------------------------
 echo "📥 正在拉取 Xray-core 官方最新二进制..."
 mkdir -p files/usr/bin
@@ -76,15 +76,50 @@ else
 fi
 
 # ---------------------------------------------------------
-# 5. 向 .config 强制注入公共的软件包配置 (严禁修改下方格式缩进)
+# 6. 【关键修复】补齐 OpenWrt 缺失的 kmod-xdp-sockets-diag 内核模块定义 (daed 刚需)
+# ---------------------------------------------------------
+NETSUPPORT_MK="package/kernel/linux/modules/netsupport.mk"
+if [ -f "$NETSUPPORT_MK" ] && ! grep -q "xdp-sockets-diag" "$NETSUPPORT_MK"; then
+  cat >> "$NETSUPPORT_MK" << 'EOF'
+
+define KernelPackage/xdp-sockets-diag
+  SUBMENU:=$(NETWORK_SUPPORT_MENU)
+  TITLE:=PF_XDP sockets monitoring interface support
+  KCONFIG:=CONFIG_XDP_SOCKETS_DIAG
+  FILES:=$(LINUX_DIR)/net/xdp/xsk_diag.ko
+  AUTOLOAD:=$(call AutoLoad,31,xsk_diag)
+endef
+
+define KernelPackage/xdp-sockets-diag/description
+ Support for PF_XDP sockets monitoring interface used by the ss tool and daed.
+endef
+
+$(eval $(call KernelPackage,xdp-sockets-diag))
+EOF
+  echo "✅ 已向 netsupport.mk 成功注入 kmod-xdp-sockets-diag 模块定义"
+fi
+
+# 强制内核开启 XDP_SOCKETS 特性
+for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
+  if [ -f "$cfg" ]; then
+    sed -i '/CONFIG_XDP_SOCKETS/d' "$cfg"
+    echo "CONFIG_XDP_SOCKETS=y" >> "$cfg"
+    echo "CONFIG_XDP_SOCKETS_DIAG=m" >> "$cfg"
+  fi
+done
+echo "✅ XDP Sockets 诊断支持已直接内建至内核配置"
+
+# ---------------------------------------------------------
+# 7. 向 .config 强制注入公共的软件包配置 (严禁修改下方格式缩进)
 # ---------------------------------------------------------
 if [ -f .config ]; then
-  # 彻底清除所有可能被自动勾选的 Go 核心
+  # 彻底清除所有可能被自动勾选的 Go 核心，防止 PassWall 编译报错
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
   sed -i '/CONFIG_PACKAGE_sing-box/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
+
   cat >> .config <<EOF
 
 # ========================
@@ -94,6 +129,8 @@ if [ -f .config ]; then
 # --- 由 diy-part1.sh 拉取的第三方插件 ---
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
+CONFIG_PACKAGE_luci-app-lucky=y
+CONFIG_PACKAGE_luci-app-openlist2=y
 
 # --- 官方 feeds 源自带的插件 ---
 CONFIG_PACKAGE_luci-app-filemanager=y
@@ -105,19 +142,8 @@ CONFIG_PACKAGE_etherwake=y
 CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
-# --- kmod-nft-queue主要用于fakehttp ---
 CONFIG_PACKAGE_kmod-nft-queue=y
 
-# --- Daed库 ---
-# 1. 对应 kmod-sched-bpf
-#CONFIG_PACKAGE_kmod-sched-bpf=y
-# 2. 对应 kmod-veth
-#CONFIG_PACKAGE_kmod-veth=y
-# 3. 对应 kmod-xdp-sockets-diag
-#CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-# dae / eBPF 运行必须的底层依赖（务必一并开启）
-#CONFIG_KERNEL_BPF_EVENTS=y
-#CONFIG_BPF_TOOLCHAIN=y
 # --- Daede (dae / daed + luci-app-daede) 完整支持 ---
 # 1. 前端与核心
 CONFIG_PACKAGE_luci-app-daede=y
@@ -155,28 +181,10 @@ CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
 CONFIG_MINIUPNPD_PCP_PEER=y
 
 
-# --- Passwall 2 纯界面面板 (零 Go 核心编译) ---
+# --- Passwall 2 纯界面面板 (零 Go 核心源码编译) ---
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
-
-# --- Passwall 2 主程序与精确核心配置 ---
-#CONFIG_PACKAGE_luci-app-passwall2=y
-
-# 强制关闭全量核心 (防止带出所有依赖)
-# CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_All is not set
-
-# 开启 Xray 和 Sing-box 核心
-#CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray=y
-#CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Sing_Box=y
-
-# 强制关闭 Rust 核心及其他不必要组件，极大缩短编译时间
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Server is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Tuic is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy is not set
-
 
 EOF
   echo "✅ 公共软件包及 Passwall2 核心配置已注入 .config"

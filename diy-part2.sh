@@ -85,6 +85,21 @@ CONFIG_PACKAGE_luci-app-ttyd=y
 # --- kmod-nft-queue主要用于fakehttp ---
 CONFIG_PACKAGE_kmod-nft-queue=y
 
+# --- Daed库 ---
+# 1. 对应 kmod-sched-bpf
+CONFIG_PACKAGE_kmod-sched-bpf=y
+
+# 2. 对应 kmod-veth
+CONFIG_PACKAGE_kmod-veth=y
+
+# 3. 对应 kmod-xdp-sockets-diag
+CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
+
+# dae / eBPF 运行必须的底层依赖（务必一并开启）
+CONFIG_KERNEL_BPF_EVENTS=y
+CONFIG_BPF_TOOLCHAIN=y
+
+
 # --- 网络共享: Samba4 服务端及 LuCI 界面 ---
 CONFIG_PACKAGE_samba4-server=y
 CONFIG_PACKAGE_samba4-libs=y

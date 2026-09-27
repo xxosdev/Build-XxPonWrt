@@ -79,6 +79,12 @@ fi
 # 5. 向 .config 强制注入公共的软件包配置 (严禁修改下方格式缩进)
 # ---------------------------------------------------------
 if [ -f .config ]; then
+  # 彻底清除所有可能被自动勾选的 Go 核心
+  sed -i '/CONFIG_PACKAGE_geoview/d' .config
+  sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
+  sed -i '/CONFIG_PACKAGE_xray-core/d' .config
+  sed -i '/CONFIG_PACKAGE_sing-box/d' .config
+  sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
   cat >> .config <<EOF
 
 # ========================
@@ -148,14 +154,20 @@ CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
 CONFIG_MINIUPNPD_PCP_PEER=y
 
-# --- Passwall 2 主程序与精确核心配置 ---
+
+# --- Passwall 2 纯界面面板 (零 Go 核心编译) ---
 CONFIG_PACKAGE_luci-app-passwall2=y
+CONFIG_PACKAGE_v2ray-geoip=y
+CONFIG_PACKAGE_v2ray-geosite=y
+
+# --- Passwall 2 主程序与精确核心配置 ---
+#CONFIG_PACKAGE_luci-app-passwall2=y
 
 # 强制关闭全量核心 (防止带出所有依赖)
 # CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_All is not set
 
 # 开启 Xray 和 Sing-box 核心
-CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray=y
+#CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray=y
 #CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Sing_Box=y
 
 # 强制关闭 Rust 核心及其他不必要组件，极大缩短编译时间

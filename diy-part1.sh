@@ -76,10 +76,17 @@ fi
 if [ "$ADD_PASSWALL2" = "true" ]; then
   clone https://github.com/Openwrt-Passwall/openwrt-passwall-packages "$PKG_DIR/openwrt-passwall-packages" main
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
+  
   # 彻底剔除需要 Go 本地编译的核心与冲突包
   rm -rf "$PKG_DIR/openwrt-passwall-packages/geoview"
   rm -rf "$PKG_DIR/openwrt-passwall-packages/xray-core"
   rm -rf "$PKG_DIR/openwrt-passwall-packages/sing-box"
+
+  # 【关键新增】：从 luci-app-passwall2 的依赖定义中删掉 +geoview
+  if [ -f "$PKG_DIR/luci-app-passwall2/Makefile" ]; then
+    sed -i 's/+geoview//g' "$PKG_DIR/luci-app-passwall2/Makefile"
+    echo "✅ 已移除 luci-app-passwall2 中的 geoview 强制依赖"
+  fi
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then

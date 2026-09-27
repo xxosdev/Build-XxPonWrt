@@ -74,23 +74,20 @@ if [ "$ADD_DAEDE" = "true" ]; then
 fi
 
 # ---------------------------------------------------------
-# PassWall 2：只拉取界面本体，彻底肢解所有 Go 核心依赖
+# PassWall 2：克隆并无死角剔除所有核心与 geoview 依赖
 # ---------------------------------------------------------
 if [ "$ADD_PASSWALL2" = "true" ]; then
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
-  PW2_MK="$PKG_DIR/luci-app-passwall2/Makefile"
-  if [ -f "$PW2_MK" ]; then
-    # 彻底抹掉 geoview 依赖
-    sed -i 's/+geoview//g' "$PW2_MK"
-    # 抹掉所有核心包的关联选择语法 (+PACKAGE_...:xxx)
-    sed -i -E 's/\+PACKAGE_[^:]+:[^ \t\\]+//g' "$PW2_MK"
-    # 抹掉固定写在 DEPENDS 里的各插件名
-    sed -i 's/+v2ray-plugin//g' "$PW2_MK"
-    sed -i 's/+xray-core//g' "$PW2_MK"
-    sed -i 's/+sing-box//g' "$PW2_MK"
-    # 彻底删除 config 子配置段，不给编译系统任何自动选入 Go 核心的机会
-    sed -i '/define Package.*\/config/,/endef/d' "$PW2_MK"
-  fi
+
+  # 全局递归搜索并强行剔除所有 Makefile 中的 geoview 与 Go 核心依赖
+  find "$PKG_DIR" -name "Makefile" | while read -r mk; do
+    sed -i 's/+geoview//g' "$mk"
+    sed -i 's/+PACKAGE_geoview:geoview//g' "$mk"
+    sed -i -E 's/\+PACKAGE_[^:]+:[^ \t\\]+//g' "$mk"
+    sed -i 's/+v2ray-plugin//g; s/+xray-core//g; s/+sing-box//g' "$mk"
+    sed -i '/define Package.*\/config/,/endef/d' "$mk"
+  done
+  echo "✅ 已全局强行清洗 Passwall2 依赖"
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -132,7 +129,7 @@ if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; th
   exit 1
 fi
 
-# 物理删除官方源中会报错的 Go 源码包
+# 物理删除官方源中会冲突报错的包
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core

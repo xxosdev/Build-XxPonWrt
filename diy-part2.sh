@@ -123,7 +123,7 @@ CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
 # 2. 规则数据包（GeoIP / GeoSite）
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
-CONFIG_PACKAGE_geoview=y
+#CONFIG_PACKAGE_geoview=y
 
 # 3. 彻底禁用 Sing-Box
 # CONFIG_PACKAGE_sing-box is not set

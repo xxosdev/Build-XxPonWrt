@@ -34,9 +34,11 @@ else
 fi
 
 # ---------------------------------------------------------
-# 3. uci-defaults：即使保留了旧配置也强制刷成中国时区
+# 3. uci-defaults：强制刷成中国时区 & 默认关闭 Lucky
 # ---------------------------------------------------------
 mkdir -p files/etc/uci-defaults
+
+# 时区设置脚本
 cat > files/etc/uci-defaults/99-timezone-cn <<'EOF'
 #!/bin/sh
 uci -q batch <<'UCI'
@@ -47,7 +49,19 @@ UCI
 exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-timezone-cn
-echo "✅ uci-defaults 时区脚本已写入"
+
+# 默认关闭 Lucky 自启脚本
+cat > files/etc/uci-defaults/99-disable-lucky <<'EOF'
+#!/bin/sh
+if [ -f "/etc/init.d/lucky" ]; then
+    /etc/init.d/lucky disable
+    /etc/init.d/lucky stop
+fi
+exit 0
+EOF
+chmod +x files/etc/uci-defaults/99-disable-lucky
+
+echo "✅ uci-defaults 初始化脚本已写入 (时区配置 + 默认关闭 Lucky)"
 
 # ---------------------------------------------------------
 # 4. 补上亚洲时区数据库包
@@ -59,20 +73,36 @@ if [ -f .config ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 下载 Xray-core 官方预编译二进制 (arm64 架构)
+# 5. 下载预编译二进制 (Xray-core、Geo数据、geoview)
 # ---------------------------------------------------------
-echo "📥 正在拉取 Xray-core 官方最新二进制..."
+echo "📥 正在拉取官方预编译二进制文件与数据..."
 mkdir -p files/usr/bin
-XRAY_URL=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep "browser_download_url.*Xray-linux-arm64-v8a.zip" | head -n 1 | cut -d '"' -f 4)
+mkdir -p files/usr/share/v2ray
 
+# 5.1 拉取 Xray-core 及 Geo 数据
+XRAY_URL=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep "browser_download_url.*Xray-linux-arm64-v8a.zip" | head -n 1 | cut -d '"' -f 4)
 if [ -n "$XRAY_URL" ]; then
   wget -qO /tmp/xray.zip "$XRAY_URL"
+  # 提取 xray 本体到 /usr/bin/
   unzip -qo /tmp/xray.zip xray -d files/usr/bin/
   chmod +x files/usr/bin/xray
+  # 提取 geoip.dat 和 geosite.dat 到 /usr/share/v2ray/
+  unzip -qo /tmp/xray.zip geoip.dat geosite.dat -d files/usr/share/v2ray/
   rm -f /tmp/xray.zip
-  echo "✅ 最新版 Xray-core 二进制已就绪"
+  echo "✅ 最新版 Xray-core 及 Geo 数据已就绪"
 else
-  echo "::warning::拉取失败，将继续使用系统编译的旧版 Xray"
+  echo "::warning::拉取 Xray-core 失败"
+fi
+
+# 5.2 拉取 geoview
+GEOVIEW_URL="https://github.com/snowie2000/geoview/releases/download/0.2.6/geoview-linux-arm64"
+wget -qO files/usr/bin/geoview "$GEOVIEW_URL"
+if [ -s files/usr/bin/geoview ]; then
+  chmod +x files/usr/bin/geoview
+  echo "✅ geoview 预编译二进制已就绪"
+else
+  echo "::warning::拉取 geoview 失败"
+  rm -f files/usr/bin/geoview
 fi
 
 # ---------------------------------------------------------
@@ -99,12 +129,12 @@ EOF
   echo "✅ 已向 netsupport.mk 成功注入 kmod-xdp-sockets-diag 模块定义"
 fi
 
-# 强制内核开启 XDP_SOCKETS 特性
+# 强制内核开启 XDP_SOCKETS 特性 (强烈建议内建设为 y)
 for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
   if [ -f "$cfg" ]; then
     sed -i '/CONFIG_XDP_SOCKETS/d' "$cfg"
     echo "CONFIG_XDP_SOCKETS=y" >> "$cfg"
-    echo "CONFIG_XDP_SOCKETS_DIAG=m" >> "$cfg"
+    echo "CONFIG_XDP_SOCKETS_DIAG=y" >> "$cfg"
   fi
 done
 echo "✅ XDP Sockets 诊断支持已直接内建至内核配置"
@@ -113,13 +143,13 @@ echo "✅ XDP Sockets 诊断支持已直接内建至内核配置"
 # 7. 向 .config 强制注入公共的软件包配置 (严禁修改下方格式缩进)
 # ---------------------------------------------------------
 if [ -f .config ]; then
-  # 彻底清除所有可能被自动勾选的 Go 核心，防止 PassWall 编译报错
+  # 彻底清除所有可能被自动勾选的 Go 核心
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
   sed -i '/CONFIG_PACKAGE_sing-box/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
-
+  
   cat >> .config <<EOF
 
 # ========================
@@ -130,7 +160,8 @@ if [ -f .config ]; then
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
-CONFIG_PACKAGE_luci-app-openlist2=y
+# 修复：源码包名是 luci-app-openlist，没有 2
+CONFIG_PACKAGE_luci-app-openlist=y
 
 # --- 官方 feeds 源自带的插件 ---
 CONFIG_PACKAGE_luci-app-filemanager=y
@@ -142,7 +173,19 @@ CONFIG_PACKAGE_etherwake=y
 CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
+# --- kmod-nft-queue主要用于fakehttp ---
 CONFIG_PACKAGE_kmod-nft-queue=y
+
+# --- Daed库 ---
+# 1. 对应 kmod-sched-bpf
+#CONFIG_PACKAGE_kmod-sched-bpf=y
+# 2. 对应 kmod-veth
+#CONFIG_PACKAGE_kmod-veth=y
+# 3. 对应 kmod-xdp-sockets-diag
+#CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
+# dae / eBPF 运行必须的底层依赖（务必一并开启）
+#CONFIG_KERNEL_BPF_EVENTS=y
+#CONFIG_BPF_TOOLCHAIN=y
 
 # --- Daede (dae / daed + luci-app-daede) 完整支持 ---
 # 1. 前端与核心
@@ -166,7 +209,6 @@ CONFIG_BPF_TOOLCHAIN=y
 CONFIG_KERNEL_DEBUG_INFO=y
 CONFIG_KERNEL_DEBUG_INFO_BTF=y
 
-
 # --- 网络共享: Samba4 服务端及 LuCI 界面 ---
 CONFIG_PACKAGE_samba4-server=y
 CONFIG_PACKAGE_samba4-libs=y
@@ -180,11 +222,27 @@ CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
 CONFIG_MINIUPNPD_PCP_PEER=y
 
-
-# --- Passwall 2 纯界面面板 (零 Go 核心源码编译) ---
+# --- Passwall 2 纯界面面板 (零 Go 核心编译) ---
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
+
+# --- Passwall 2 主程序与精确核心配置 ---
+#CONFIG_PACKAGE_luci-app-passwall2=y
+
+# 强制关闭全量核心 (防止带出所有依赖)
+# CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_All is not set
+
+# 开启 Xray 和 Sing-box 核心
+#CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray=y
+#CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Sing_Box=y
+
+# 强制关闭 Rust 核心及其他不必要组件，极大缩短编译时间
+# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client is not set
+# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Server is not set
+# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria is not set
+# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Tuic is not set
+# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy is not set
 
 EOF
   echo "✅ 公共软件包及 Passwall2 核心配置已注入 .config"

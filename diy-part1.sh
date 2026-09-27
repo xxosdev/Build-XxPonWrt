@@ -110,11 +110,13 @@ fi
 rm -rf feeds/packages/net/xray-core
 rm -rf feeds/packages/net/sing-box
 rm -rf feeds/packages/net/v2ray-geodata
+rm -rf feeds/packages/net/geoview
 
 # 清除 feeds install 已经建立的旧软链接
 rm -rf package/feeds/packages/xray-core
 rm -rf package/feeds/packages/sing-box
 rm -rf package/feeds/packages/v2ray-geodata
+rm -rf package/feeds/packages/geoview
 
 # ---------------------------------------------------------
 # 5. 校验与更新索引

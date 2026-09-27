@@ -87,17 +87,35 @@ CONFIG_PACKAGE_kmod-nft-queue=y
 
 # --- Daed库 ---
 # 1. 对应 kmod-sched-bpf
-CONFIG_PACKAGE_kmod-sched-bpf=y
-
+#CONFIG_PACKAGE_kmod-sched-bpf=y
 # 2. 对应 kmod-veth
-CONFIG_PACKAGE_kmod-veth=y
-
+#CONFIG_PACKAGE_kmod-veth=y
 # 3. 对应 kmod-xdp-sockets-diag
+#CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
+# dae / eBPF 运行必须的底层依赖（务必一并开启）
+#CONFIG_KERNEL_BPF_EVENTS=y
+#CONFIG_BPF_TOOLCHAIN=y
+# --- Daede (dae / daed + luci-app-daede) 完整支持 ---
+# 1. 前端与核心
+CONFIG_PACKAGE_luci-app-daede=y
+CONFIG_PACKAGE_dae=y
+CONFIG_PACKAGE_daed=y
+
+# 2. 证书与网络依赖
+CONFIG_PACKAGE_ca-bundle=y
+CONFIG_PACKAGE_kmod-nft-tproxy=y
+
+# 3. eBPF 内核底层模块依赖
+CONFIG_PACKAGE_kmod-sched-bpf=y
+CONFIG_PACKAGE_kmod-sched-core=y
+CONFIG_PACKAGE_kmod-veth=y
 CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
 
-# dae / eBPF 运行必须的底层依赖（务必一并开启）
+# 4. 内核 eBPF / BTF 特性支持 (dae 核心必需)
 CONFIG_KERNEL_BPF_EVENTS=y
 CONFIG_BPF_TOOLCHAIN=y
+CONFIG_KERNEL_DEBUG_INFO=y
+CONFIG_KERNEL_DEBUG_INFO_BTF=y
 
 
 # --- 网络共享: Samba4 服务端及 LuCI 界面 ---

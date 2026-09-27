@@ -18,6 +18,7 @@ mkdir -p "$PKG_DIR"
 ADD_AIROHA_NPU=true    # luci-app-airoha-npu: Airoha SoC 状态页 (NPU/CPU等)
 
 # 科学上网与 DNS
+ADD_DAEDE=true        # luci-app-daede & dae/daed 透明代理
 ADD_PASSWALL2=true     # luci-app-passwall2: 科学上网 (核心精简请在 diy-part2.sh 配置)
 ADD_MOSDNS=false       # luci-app-mosdns: DNS 防泄漏 + v2ray-geodata
 ADD_SMARTDNS=false     # luci-app-smartdns: DNS 加速
@@ -66,6 +67,10 @@ clone() {
 # ---------------------------------------------------------
 if [ "$ADD_AIROHA_NPU" = "true" ]; then
   clone https://github.com/luanmuc/luci-app-airoha-npu "$PKG_DIR/luci-app-airoha-npu" main
+fi
+
+if [ "$ADD_DAEDE" = "true" ]; then
+  clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
 fi
 
 if [ "$ADD_PASSWALL2" = "true" ]; then

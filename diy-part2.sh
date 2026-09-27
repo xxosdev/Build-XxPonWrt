@@ -61,7 +61,7 @@ fi
 # ---------------------------------------------------------
 # 4. 下载 Xray-core 官方预编译二进制 (arm64 架构)
 # ---------------------------------------------------------
-echo "📥 正在拉取 Xray-core 官方预编译二进制..."
+echo "📥 正在拉取 Xray-core 官方最新二进制..."
 mkdir -p files/usr/bin
 XRAY_URL=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep "browser_download_url.*Xray-linux-arm64-v8a.zip" | head -n 1 | cut -d '"' -f 4)
 
@@ -70,20 +70,15 @@ if [ -n "$XRAY_URL" ]; then
   unzip -qo /tmp/xray.zip xray -d files/usr/bin/
   chmod +x files/usr/bin/xray
   rm -f /tmp/xray.zip
-  echo "✅ Xray-core 预编译二进制部署就绪: $(files/usr/bin/xray version | head -n 1)"
+  echo "✅ 最新版 Xray-core 二进制已就绪"
 else
-  echo "❌ ::warning::获取 Xray 预编译包链接失败，请检查网络！"
+  echo "::warning::拉取失败，将继续使用系统编译的旧版 Xray"
 fi
 
 # ---------------------------------------------------------
 # 5. 向 .config 强制注入公共的软件包配置 (严禁修改下方格式缩进)
 # ---------------------------------------------------------
 if [ -f .config ]; then
-  # 清理旧的与不需要编译的核心选项，防止冲突
-  sed -i '/CONFIG_PACKAGE_zoneinfo-asia/d' .config
-  sed -i '/CONFIG_PACKAGE_xray-core/d' .config
-  sed -i '/CONFIG_PACKAGE_geoview/d' .config
-
   cat >> .config <<EOF
 
 # ========================
@@ -155,15 +150,11 @@ CONFIG_MINIUPNPD_PCP_PEER=y
 
 # --- Passwall 2 核心精准精简配置 (仅保留最新 Xray) ---
 CONFIG_PACKAGE_luci-app-passwall2=y
-
-# 1. 显式开启 Xray-core 及其依赖
-#CONFIG_PACKAGE_xray-core=y
 CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
-
-# 2. 规则数据包（GeoIP / GeoSite）
+CONFIG_PACKAGE_xray-core=y
+CONFIG_PACKAGE_geoview=y
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
-#CONFIG_PACKAGE_geoview=y
 
 # 3. 彻底禁用 Sing-Box
 # CONFIG_PACKAGE_sing-box is not set

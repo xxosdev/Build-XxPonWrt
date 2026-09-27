@@ -76,17 +76,6 @@ fi
 if [ "$ADD_PASSWALL2" = "true" ]; then
   clone https://github.com/Openwrt-Passwall/openwrt-passwall-packages "$PKG_DIR/openwrt-passwall-packages" main
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
-  
-  # 彻底剔除需要 Go 本地编译的核心与冲突包
-  rm -rf "$PKG_DIR/openwrt-passwall-packages/geoview"
-  rm -rf "$PKG_DIR/openwrt-passwall-packages/xray-core"
-  rm -rf "$PKG_DIR/openwrt-passwall-packages/sing-box"
-
-  # 【关键新增】：从 luci-app-passwall2 的依赖定义中删掉 +geoview
-  if [ -f "$PKG_DIR/luci-app-passwall2/Makefile" ]; then
-    sed -i 's/+geoview//g' "$PKG_DIR/luci-app-passwall2/Makefile"
-    echo "✅ 已移除 luci-app-passwall2 中的 geoview 强制依赖"
-  fi
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -118,19 +107,6 @@ fi
 if [ "$ADD_THEME_AURORA" = "true" ]; then
   clone https://github.com/eamonxg/luci-theme-aurora "$PKG_DIR/luci-theme-aurora" master
 fi
-
-# ---------------------------------------------------------
-# 4.5 核心清理：清除官方 Feed 中的旧版与报错包，彻底禁用现场编译
-# ---------------------------------------------------------
-# 彻底移除官方 packages 源中的旧版核心与易报错包 (保留 v2ray-geodata 规则数据)
-rm -rf feeds/packages/net/xray-core
-rm -rf feeds/packages/net/sing-box
-rm -rf feeds/packages/net/geoview
-
-# 清除 feeds install 已经建立的旧软链接
-rm -rf package/feeds/packages/xray-core
-rm -rf package/feeds/packages/sing-box
-rm -rf package/feeds/packages/geoview
 
 # ---------------------------------------------------------
 # 5. 校验与更新索引

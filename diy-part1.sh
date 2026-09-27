@@ -71,6 +71,8 @@ fi
 if [ "$ADD_PASSWALL2" = "true" ]; then
   clone https://github.com/Openwrt-Passwall/openwrt-passwall-packages "$PKG_DIR/openwrt-passwall-packages" main
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
+  # 直接从 passwall 仓库中删掉 geoview
+  rm -rf "$PKG_DIR/openwrt-passwall-packages/geoview"
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then

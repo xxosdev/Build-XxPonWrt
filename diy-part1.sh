@@ -73,9 +73,24 @@ if [ "$ADD_DAEDE" = "true" ]; then
   clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
 fi
 
+# ---------------------------------------------------------
+# PassWall 2：只拉取界面本体，彻底肢解所有 Go 核心依赖
+# ---------------------------------------------------------
 if [ "$ADD_PASSWALL2" = "true" ]; then
-  clone https://github.com/Openwrt-Passwall/openwrt-passwall-packages "$PKG_DIR/openwrt-passwall-packages" main
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
+  PW2_MK="$PKG_DIR/luci-app-passwall2/Makefile"
+  if [ -f "$PW2_MK" ]; then
+    # 彻底抹掉 geoview 依赖
+    sed -i 's/+geoview//g' "$PW2_MK"
+    # 抹掉所有核心包的关联选择语法 (+PACKAGE_...:xxx)
+    sed -i -E 's/\+PACKAGE_[^:]+:[^ \t\\]+//g' "$PW2_MK"
+    # 抹掉固定写在 DEPENDS 里的各插件名
+    sed -i 's/+v2ray-plugin//g' "$PW2_MK"
+    sed -i 's/+xray-core//g' "$PW2_MK"
+    sed -i 's/+sing-box//g' "$PW2_MK"
+    # 彻底删除 config 子配置段，不给编译系统任何自动选入 Go 核心的机会
+    sed -i '/define Package.*\/config/,/endef/d' "$PW2_MK"
+  fi
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -116,6 +131,16 @@ if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; th
   echo "❌ ::error::luci-app-airoha-npu 源码未拉取成功，将导致配置被剔除！"
   exit 1
 fi
+
+# 物理删除官方源中会报错的 Go 源码包
+rm -rf feeds/packages/net/geoview
+rm -rf feeds/packages/net/v2ray-plugin
+rm -rf feeds/packages/net/xray-core
+rm -rf feeds/packages/net/sing-box
+rm -rf package/feeds/packages/geoview
+rm -rf package/feeds/packages/v2ray-plugin
+rm -rf package/feeds/packages/xray-core
+rm -rf package/feeds/packages/sing-box
 
 # 更新环境包索引，使新克隆的包能被 make menuconfig 读取
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then

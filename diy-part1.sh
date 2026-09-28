@@ -29,14 +29,13 @@ ADD_TAILSCALE=false    # luci-app-tailscale: 虚拟局域网
 ADD_EASYTIER=true      # luci-app-easytier: EasyTier 组网 (第三方源)
 
 # 存储与界面
-ADD_OPENLIST=false     # luci-app-openlist2: 网盘挂载
+ADD_OPENLIST=false     # luci-app-openlist2: 网盘挂载 (已关闭)
 ADD_THEME_AURORA=true  # luci-theme-aurora: Aurora 主题 (第三方源)
 
 # 注: luci-app-filemanager 等官方源已有的包，无需在此拉取，直接在 diy-part2.sh 启用即可。
 
 # ---------------------------------------------------------
 # 2. 复制本地自带包
-# 说明: 将 CI 仓库自带的包（如 luci-app-pon-status）拷贝进编译目录
 # ---------------------------------------------------------
 LOCAL_PKG_DIR="${GITHUB_WORKSPACE}/packages"
 if [ -d "$LOCAL_PKG_DIR" ]; then
@@ -69,8 +68,11 @@ if [ "$ADD_AIROHA_NPU" = "true" ]; then
   clone https://github.com/luanmuc/luci-app-airoha-npu "$PKG_DIR/luci-app-airoha-npu" main
 fi
 
+# 【优化点 3】：抹除 daed 对 kmod-xdp-sockets-diag 的包依赖检查
 if [ "$ADD_DAEDE" = "true" ]; then
   clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
+  find "$PKG_DIR/openwrt-daede" -name "Makefile" | xargs sed -i 's/+kmod-xdp-sockets-diag//g' 2>/dev/null
+  echo "✅ 已抹除 daede 对 kmod-xdp-sockets-diag 的外部包依赖"
 fi
 
 # ---------------------------------------------------------
@@ -123,23 +125,23 @@ fi
 # ---------------------------------------------------------
 # 5. 校验与更新索引
 # ---------------------------------------------------------
-# 校验默认必须开启的包（防止 defconfig 剔除依赖）
 if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; then
   echo "❌ ::error::luci-app-airoha-npu 源码未拉取成功，将导致配置被剔除！"
   exit 1
 fi
 
-# 物理删除官方源中会冲突报错的包
+# 物理删除官方源中会冲突报错的包 (包含 openlist 防干扰)
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core
 rm -rf feeds/packages/net/sing-box
+rm -rf feeds/packages/net/openlist
 rm -rf package/feeds/packages/geoview
 rm -rf package/feeds/packages/v2ray-plugin
 rm -rf package/feeds/packages/xray-core
 rm -rf package/feeds/packages/sing-box
+rm -rf package/feeds/packages/openlist
 
-# 更新环境包索引，使新克隆的包能被 make menuconfig 读取
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true
   ./scripts/feeds install -a >/dev/null 2>&1 || true

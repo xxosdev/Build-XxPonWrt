@@ -69,7 +69,7 @@ if [ "$ADD_AIROHA_NPU" = "true" ]; then
   clone https://github.com/luanmuc/luci-app-airoha-npu "$PKG_DIR/luci-app-airoha-npu" main
 fi
 
-# 【修改：切断 dae 和 daed 的 Go 编译，保留 kmod 包生成】
+# 剔除 daede 的 Go 编译
 if [ "$ADD_DAEDE" = "true" ]; then
   clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
   find "$PKG_DIR/openwrt-daede" -name "Makefile" | while read -r mk; do
@@ -79,26 +79,12 @@ if [ "$ADD_DAEDE" = "true" ]; then
   echo "✅ 已剔除 daede 界面对 dae/daed Go核心的编译依赖"
 fi
 
-# 【新增：拉取 Homeproxy】
 if [ "$ADD_HOMEPROXY" = "true" ]; then
   clone https://github.com/immortalwrt/homeproxy "$PKG_DIR/luci-app-homeproxy" master
 fi
 
-# ---------------------------------------------------------
-# PassWall 2 / Homeproxy：克隆并无死角剔除所有核心与 geoview 依赖
-# ---------------------------------------------------------
 if [ "$ADD_PASSWALL2" = "true" ] || [ "$ADD_HOMEPROXY" = "true" ]; then
   [ "$ADD_PASSWALL2" = "true" ] && clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
-
-  # 全局递归搜索并强行剔除所有 Makefile 中的 geoview 与 Go 核心依赖
-  find "$PKG_DIR" -name "Makefile" | while read -r mk; do
-    sed -i 's/+geoview//g' "$mk"
-    sed -i 's/+PACKAGE_geoview:geoview//g' "$mk"
-    sed -i -E 's/\+PACKAGE_[^:]+:[^ \t\\]+//g' "$mk"
-    sed -i 's/+v2ray-plugin//g; s/+xray-core//g; s/+sing-box//g' "$mk"
-    sed -i '/define Package.*\/config/,/endef/d' "$mk"
-  done
-  echo "✅ 已全局强行清洗面板插件的所有 Go 核心依赖"
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -132,14 +118,14 @@ if [ "$ADD_THEME_AURORA" = "true" ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 校验与更新索引
+# 5. 校验与全局依赖死刑清洗（关键防报错）
 # ---------------------------------------------------------
 if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; then
   echo "❌ ::error::luci-app-airoha-npu 源码未拉取成功，将导致配置被剔除！"
   exit 1
 fi
 
-# 物理删除官方源中会冲突报错的包 (彻底防干扰)
+# 物理删除官方源中会冲突报错的核心源码包
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core
@@ -154,6 +140,17 @@ rm -rf package/feeds/packages/sing-box
 rm -rf package/feeds/packages/openlist
 rm -rf package/feeds/packages/dae
 rm -rf package/feeds/packages/daed
+
+# 删除官方自带的重名面板，强迫系统使用我们在 custom 中清洗过的版本
+rm -rf feeds/luci/applications/luci-app-homeproxy
+rm -rf feeds/luci/applications/luci-app-passwall
+rm -rf package/feeds/luci/luci-app-homeproxy
+rm -rf package/feeds/luci/luci-app-passwall
+
+# 【核心必杀技】：全局扫描所有包的 Makefile，将对 Go 核心的打包依赖字眼抹杀干净
+# 这样无论在生成 apk 还是固件时，都不会再索要 sing-box、xray-core 等包裹
+echo "🔍 正在进行全局依赖强行清洗..."
+find package/ feeds/ -name "Makefile" | xargs sed -i 's/+sing-box//g; s/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true

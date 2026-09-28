@@ -160,8 +160,11 @@ if [ -f .config ]; then
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
-# 修复：源码包名是 luci-app-openlist，没有 2
-CONFIG_PACKAGE_luci-app-openlist=y
+# --- Openlist 2 完整支持 ---
+# 强制编译核心程序
+CONFIG_PACKAGE_openlist2=y
+# 强制编译 Web 界面
+CONFIG_PACKAGE_luci-app-openlist2=y
 
 # --- 官方 feeds 源自带的插件 ---
 CONFIG_PACKAGE_luci-app-filemanager=y

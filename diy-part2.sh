@@ -79,8 +79,8 @@ echo "📥 正在拉取官方预编译二进制文件与数据..."
 mkdir -p files/usr/bin
 mkdir -p files/usr/share/v2ray
 
-# 5.1 拉取 Xray-core 及 Geo 数据
-XRAY_URL=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep "browser_download_url.*Xray-linux-arm64-v8a.zip" | head -n 1 | cut -d '"' -f 4)
+# 5.1 【优化点 1】拉取 Xray-core 及 Geo 数据 (使用 /releases 接口提取绝对最新版)
+XRAY_URL=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases | grep "browser_download_url.*Xray-linux-arm64-v8a.zip" | head -n 1 | cut -d '"' -f 4)
 if [ -n "$XRAY_URL" ]; then
   wget -qO /tmp/xray.zip "$XRAY_URL"
   # 提取 xray 本体到 /usr/bin/
@@ -89,15 +89,15 @@ if [ -n "$XRAY_URL" ]; then
   # 提取 geoip.dat 和 geosite.dat 到 /usr/share/v2ray/
   unzip -qo /tmp/xray.zip geoip.dat geosite.dat -d files/usr/share/v2ray/
   rm -f /tmp/xray.zip
-  echo "✅ 最新版 Xray-core 及 Geo 数据已就绪"
+  echo "✅ 绝对最新版 Xray-core 及 Geo 数据已就绪"
 else
   echo "::warning::拉取 Xray-core 失败"
 fi
 
-# 5.2 拉取 geoview
-GEOVIEW_URL="https://github.com/snowie2000/geoview/releases/download/0.2.6/geoview-linux-arm64"
-wget -qO files/usr/bin/geoview "$GEOVIEW_URL"
-if [ -s files/usr/bin/geoview ]; then
+# 5.2 【优化点 1】拉取 geoview (使用 /releases API)
+GEOVIEW_URL=$(curl -s https://api.github.com/repos/snowie2000/geoview/releases | grep "browser_download_url.*geoview-linux-arm64" | head -n 1 | cut -d '"' -f 4)
+if [ -n "$GEOVIEW_URL" ]; then
+  wget -qO files/usr/bin/geoview "$GEOVIEW_URL"
   chmod +x files/usr/bin/geoview
   echo "✅ geoview 预编译二进制已就绪"
 else
@@ -137,19 +137,24 @@ for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
     echo "CONFIG_XDP_SOCKETS_DIAG=y" >> "$cfg"
   fi
 done
+
+# 全局剔除官方 feeds 包可能带来的 xdp 依赖链，防止打包报错
+find package/ feeds/ -name "Makefile" | xargs sed -i 's/+kmod-xdp-sockets-diag//g' 2>/dev/null
 echo "✅ XDP Sockets 诊断支持已直接内建至内核配置"
 
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置 (严禁修改下方格式缩进)
 # ---------------------------------------------------------
 if [ -f .config ]; then
-  # 彻底清除所有可能被自动勾选的 Go 核心
+  # 彻底清除所有可能被自动勾选的 Go 核心和 openlist 干扰
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
   sed -i '/CONFIG_PACKAGE_sing-box/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
-  
+  sed -i '/CONFIG_PACKAGE_openlist/d' .config
+  sed -i '/CONFIG_PACKAGE_luci-app-openlist/d' .config
+
   cat >> .config <<EOF
 
 # ========================
@@ -160,11 +165,8 @@ if [ -f .config ]; then
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
-# --- Openlist 2 完整支持 ---
-# 强制编译核心程序
-CONFIG_PACKAGE_openlist2=y
-# 强制编译 Web 界面
-CONFIG_PACKAGE_luci-app-openlist2=y
+
+# 【优化点 2】：移除 Openlist2 的注入
 
 # --- 官方 feeds 源自带的插件 ---
 CONFIG_PACKAGE_luci-app-filemanager=y
@@ -184,7 +186,7 @@ CONFIG_PACKAGE_kmod-nft-queue=y
 #CONFIG_PACKAGE_kmod-sched-bpf=y
 # 2. 对应 kmod-veth
 #CONFIG_PACKAGE_kmod-veth=y
-# 3. 对应 kmod-xdp-sockets-diag
+# 【优化点 3】：kmod-xdp-sockets-diag 已内建到系统内核中，严禁此处再次勾选打包！
 #CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
 # dae / eBPF 运行必须的底层依赖（务必一并开启）
 #CONFIG_KERNEL_BPF_EVENTS=y
@@ -204,7 +206,6 @@ CONFIG_PACKAGE_kmod-nft-tproxy=y
 CONFIG_PACKAGE_kmod-sched-bpf=y
 CONFIG_PACKAGE_kmod-sched-core=y
 CONFIG_PACKAGE_kmod-veth=y
-CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
 
 # 4. 内核 eBPF / BTF 特性支持 (dae 核心必需)
 CONFIG_KERNEL_BPF_EVENTS=y

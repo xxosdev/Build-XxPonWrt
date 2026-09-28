@@ -20,6 +20,7 @@ ADD_AIROHA_NPU=true    # luci-app-airoha-npu: Airoha SoC 状态页 (NPU/CPU等)
 # 科学上网与 DNS
 ADD_DAEDE=true        # luci-app-daede & dae/daed 透明代理
 ADD_PASSWALL2=true     # luci-app-passwall2: 科学上网 (核心精简请在 diy-part2.sh 配置)
+ADD_HOMEPROXY=true     # luci-app-homeproxy: 新增 Homeproxy 面板
 ADD_MOSDNS=false       # luci-app-mosdns: DNS 防泄漏 + v2ray-geodata
 ADD_SMARTDNS=false     # luci-app-smartdns: DNS 加速
 
@@ -68,18 +69,26 @@ if [ "$ADD_AIROHA_NPU" = "true" ]; then
   clone https://github.com/luanmuc/luci-app-airoha-npu "$PKG_DIR/luci-app-airoha-npu" main
 fi
 
-# 【优化点 3】：抹除 daed 对 kmod-xdp-sockets-diag 的包依赖检查
+# 【修改：切断 dae 和 daed 的 Go 编译，保留 kmod 包生成】
 if [ "$ADD_DAEDE" = "true" ]; then
   clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
-  find "$PKG_DIR/openwrt-daede" -name "Makefile" | xargs sed -i 's/+kmod-xdp-sockets-diag//g' 2>/dev/null
-  echo "✅ 已抹除 daede 对 kmod-xdp-sockets-diag 的外部包依赖"
+  find "$PKG_DIR/openwrt-daede" -name "Makefile" | while read -r mk; do
+    sed -i 's/+dae//g' "$mk"
+    sed -i 's/+daed//g' "$mk"
+  done
+  echo "✅ 已剔除 daede 界面对 dae/daed Go核心的编译依赖"
+fi
+
+# 【新增：拉取 Homeproxy】
+if [ "$ADD_HOMEPROXY" = "true" ]; then
+  clone https://github.com/immortalwrt/homeproxy "$PKG_DIR/luci-app-homeproxy" master
 fi
 
 # ---------------------------------------------------------
-# PassWall 2：克隆并无死角剔除所有核心与 geoview 依赖
+# PassWall 2 / Homeproxy：克隆并无死角剔除所有核心与 geoview 依赖
 # ---------------------------------------------------------
-if [ "$ADD_PASSWALL2" = "true" ]; then
-  clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
+if [ "$ADD_PASSWALL2" = "true" ] || [ "$ADD_HOMEPROXY" = "true" ]; then
+  [ "$ADD_PASSWALL2" = "true" ] && clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
 
   # 全局递归搜索并强行剔除所有 Makefile 中的 geoview 与 Go 核心依赖
   find "$PKG_DIR" -name "Makefile" | while read -r mk; do
@@ -89,7 +98,7 @@ if [ "$ADD_PASSWALL2" = "true" ]; then
     sed -i 's/+v2ray-plugin//g; s/+xray-core//g; s/+sing-box//g' "$mk"
     sed -i '/define Package.*\/config/,/endef/d' "$mk"
   done
-  echo "✅ 已全局强行清洗 Passwall2 依赖"
+  echo "✅ 已全局强行清洗面板插件的所有 Go 核心依赖"
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -130,17 +139,21 @@ if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; th
   exit 1
 fi
 
-# 物理删除官方源中会冲突报错的包 (包含 openlist 防干扰)
+# 物理删除官方源中会冲突报错的包 (彻底防干扰)
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core
 rm -rf feeds/packages/net/sing-box
 rm -rf feeds/packages/net/openlist
+rm -rf feeds/packages/net/dae
+rm -rf feeds/packages/net/daed
 rm -rf package/feeds/packages/geoview
 rm -rf package/feeds/packages/v2ray-plugin
 rm -rf package/feeds/packages/xray-core
 rm -rf package/feeds/packages/sing-box
 rm -rf package/feeds/packages/openlist
+rm -rf package/feeds/packages/dae
+rm -rf package/feeds/packages/daed
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true

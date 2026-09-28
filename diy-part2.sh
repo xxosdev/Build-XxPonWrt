@@ -60,8 +60,7 @@ echo "✅ uci-defaults 初始化脚本已写入"
 # ---------------------------------------------------------
 if [ -f .config ]; then
   sed -i '/^CONFIG_PACKAGE_zoneinfo-asia=/d; /^# CONFIG_PACKAGE_zoneinfo-asia is not set/d' .config
-  echo "CONFIG_PACKAGE_zoneinfo-asia=y    # 亚洲时区数据库（中国时区需要）" >> .config
-  echo "✅ zoneinfo-asia 已加入 .config"
+  echo "CONFIG_PACKAGE_zoneinfo-asia=y    # 亚洲时区数据库" >> .config
 fi
 
 # ---------------------------------------------------------
@@ -144,10 +143,9 @@ endef
 
 $(eval $(call KernelPackage,xdp-sockets-diag))
 EOF
-  echo "✅ 已向 netsupport.mk 成功注入 kmod-xdp-sockets-diag 模块定义"
 fi
 
-# 【修改】：内核基础特性开启(=y)，但诊断接口不强制内建，这样编译系统才会去生成独立的 kmod 安装包
+# 内核基础特性开启(=y)，让系统正常打包生成 kmod 安装包
 for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
   if [ -f "$cfg" ]; then
     sed -i '/CONFIG_XDP_SOCKETS/d' "$cfg"
@@ -155,20 +153,15 @@ for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
   fi
 done
 
-# 注意：这里我们不再剔除全局的依赖，因为你需要生成这个独立的包
-
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
 if [ -f .config ]; then
-  # 彻底清除所有干扰
+  # 清除干扰
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
   sed -i '/CONFIG_PACKAGE_sing-box/d' .config
-  sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
-  sed -i '/CONFIG_PACKAGE_openlist/d' .config
-  sed -i '/CONFIG_PACKAGE_luci-app-openlist/d' .config
   sed -i '/CONFIG_PACKAGE_dae=/d' .config
   sed -i '/CONFIG_PACKAGE_daed=/d' .config
 
@@ -178,13 +171,16 @@ if [ -f .config ]; then
 # 强制注入的公共插件配置
 # ========================
 
-# --- 由 diy-part1.sh 拉取的第三方插件 ---
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
 CONFIG_PACKAGE_luci-app-homeproxy=y
 
-# --- 官方 feeds 源自带的插件 ---
+# --- 新增: Honk 引擎 ---
+CONFIG_PACKAGE_honk=y
+CONFIG_PACKAGE_luci-app-honk=y
+CONFIG_PACKAGE_ip-full=y
+
 CONFIG_PACKAGE_luci-app-filemanager=y
 CONFIG_PACKAGE_pbr=y
 CONFIG_PACKAGE_luci-app-pbr=y
@@ -196,51 +192,36 @@ CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
 CONFIG_PACKAGE_kmod-nft-queue=y
 
-# --- Daed库 ---
-# 【恢复】：要求系统打包生成此模块
+# --- Daede (外挂版) ---
 CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-
-# --- Daede (dae / daed + luci-app-daede) 完整支持 ---
-# 只编译前端面板。核心程序不再触发 Go 编译
 CONFIG_PACKAGE_luci-app-daede=y
-
-# 2. 证书与网络依赖
 CONFIG_PACKAGE_ca-bundle=y
 CONFIG_PACKAGE_kmod-nft-tproxy=y
-
-# 3. eBPF 内核底层模块依赖
 CONFIG_PACKAGE_kmod-sched-bpf=y
 CONFIG_PACKAGE_kmod-sched-core=y
 CONFIG_PACKAGE_kmod-veth=y
-
-# 4. 内核 eBPF / BTF 特性支持 (dae 核心必需)
 CONFIG_KERNEL_BPF_EVENTS=y
 CONFIG_BPF_TOOLCHAIN=y
 CONFIG_KERNEL_DEBUG_INFO=y
 CONFIG_KERNEL_DEBUG_INFO_BTF=y
 
-# --- 网络共享: Samba4 服务端及 LuCI 界面 ---
 CONFIG_PACKAGE_samba4-server=y
 CONFIG_PACKAGE_samba4-libs=y
 CONFIG_PACKAGE_luci-app-samba4=y
 CONFIG_PACKAGE_luci-i18n-samba4-zh-cn=y
 CONFIG_PACKAGE_wsdd2=y
 
-# --- 端口映射: UPnP IGD 与 PCP/NAT-PMP 服务 ---
 CONFIG_PACKAGE_miniupnpd=y
 CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
 CONFIG_MINIUPNPD_PCP_PEER=y
 
-# --- Passwall 2 纯界面面板 ---
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
 
 EOF
   echo "✅ 公共软件包及配置已注入 .config"
-else
-  echo "::warning::未找到 .config 文件，跳过公共软件包注入"
 fi
 
 echo "🎉 diy-part2.sh 执行完毕"

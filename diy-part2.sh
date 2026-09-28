@@ -9,6 +9,15 @@ echo "执行自定义修改与注入公共配置 (diy-part2.sh)"
 echo "=========================================="
 
 # ---------------------------------------------------------
+# 0. 补全系统编译环境 (安装 pahole 以生成内核 BTF)
+# ---------------------------------------------------------
+if command -v apt-get &> /dev/null; then
+  echo "📦 正在安装 dwarves (pahole) 以确保 Linux 内核成功生成 BTF..."
+  sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y dwarves
+fi
+
+# ---------------------------------------------------------
 # 1. 基础系统设置：修改默认主机名、IP 和 WIFI 名称
 # ---------------------------------------------------------
 # sed -i 's/OpenWrt/PONWrt/g' package/base-files/files/bin/config_generate
@@ -64,7 +73,7 @@ if [ -f .config ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box, dae, daed)
+# 5. 下载预编译二进制核心 (仅保留 Xray 和 Geoview)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."
 mkdir -p files/usr/bin
@@ -87,39 +96,6 @@ if [ -n "$GEOVIEW_URL" ]; then
   wget -qO files/usr/bin/geoview "$GEOVIEW_URL"
   chmod +x files/usr/bin/geoview
   echo "✅ geoview 已就绪"
-fi
-
-# 5.3 拉取 Sing-box 核心
-SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-armv8.tar.gz" | head -n 1 | cut -d '"' -f 4)
-[ -z "$SINGBOX_URL" ] && SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
-if [ -n "$SINGBOX_URL" ]; then
-  wget -qO /tmp/singbox.tar.gz "$SINGBOX_URL"
-  tar -xzf /tmp/singbox.tar.gz -C /tmp/
-  mv /tmp/sing-box-*/sing-box files/usr/bin/
-  chmod +x files/usr/bin/sing-box
-  rm -rf /tmp/singbox* /tmp/sing-box*
-  echo "✅ 最新版 Sing-box 核心已就绪"
-fi
-
-# 5.4 拉取 dae 和 daed 核心
-DAE_URL=$(curl -s https://api.github.com/repos/daeuniverse/dae/releases | grep "browser_download_url.*dae-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
-if [ -n "$DAE_URL" ]; then
-  wget -qO /tmp/dae.zip "$DAE_URL"
-  mkdir -p /tmp/dae_ext && unzip -qo /tmp/dae.zip -d /tmp/dae_ext/
-  find /tmp/dae_ext -type f -exec mv {} files/usr/bin/dae \;
-  chmod +x files/usr/bin/dae
-  rm -rf /tmp/dae*
-  echo "✅ 最新版 dae 核心已就绪"
-fi
-
-DAED_URL=$(curl -s https://api.github.com/repos/daeuniverse/daed/releases | grep "browser_download_url.*daed-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
-if [ -n "$DAED_URL" ]; then
-  wget -qO /tmp/daed.zip "$DAED_URL"
-  mkdir -p /tmp/daed_ext && unzip -qo /tmp/daed.zip -d /tmp/daed_ext/
-  find /tmp/daed_ext -type f -exec mv {} files/usr/bin/daed \;
-  chmod +x files/usr/bin/daed
-  rm -rf /tmp/daed*
-  echo "✅ 最新版 daed 核心已就绪"
 fi
 
 # ---------------------------------------------------------
@@ -156,29 +132,32 @@ for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
     sed -i '/CONFIG_DEBUG_INFO_REDUCED/d' "$cfg"
     sed -i '/CONFIG_DEBUG_INFO_BTF/d' "$cfg"
     sed -i '/CONFIG_DEBUG_INFO/d' "$cfg"
+    sed -i '/CONFIG_BPF_SYSCALL/d' "$cfg"
     echo "# CONFIG_DEBUG_INFO_REDUCED is not set" >> "$cfg"
     echo "CONFIG_DEBUG_INFO=y" >> "$cfg"
     echo "CONFIG_DEBUG_INFO_BTF=y" >> "$cfg"
+    echo "CONFIG_BPF_SYSCALL=y" >> "$cfg"
   fi
 done
-echo "✅ 已向底层内核强制注入 BTF 支持，解决 dae 无法读取内核态的致命报错！"
+echo "✅ 已向底层内核强制注入 BTF 支持，解决透明代理无法读取内核态的问题！"
 
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
 if [ -f .config ]; then
-  # 彻底清除所有干扰
+  # 彻底清除干扰项
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
   sed -i '/CONFIG_PACKAGE_sing-box/d' .config
+  sed -i '/CONFIG_PACKAGE_luci-app-homeproxy/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
   sed -i '/CONFIG_PACKAGE_openlist/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-openlist/d' .config
   sed -i '/CONFIG_PACKAGE_dae=/d' .config
   sed -i '/CONFIG_PACKAGE_daed=/d' .config
   
-  # 【关键改动 2】：在 OpenWrt 主配置层面也要强行剥离精简模式
+  # 在 OpenWrt 主配置层面也要强行剥离精简模式
   sed -i '/CONFIG_KERNEL_DEBUG_INFO_REDUCED/d' .config
   echo "# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set" >> .config
 
@@ -188,13 +167,11 @@ if [ -f .config ]; then
 # 强制注入的公共插件配置
 # ========================
 
-# --- 由 diy-part1.sh 拉取的第三方插件 ---
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
-CONFIG_PACKAGE_luci-app-homeproxy=y
 
-# --- 新增: Honk 引擎 ---
+# --- Honk 引擎 ---
 CONFIG_PACKAGE_honk=y
 CONFIG_PACKAGE_luci-app-honk=y
 CONFIG_PACKAGE_ip-full=y
@@ -214,7 +191,7 @@ CONFIG_PACKAGE_kmod-nft-queue=y
 # --- Daed库 ---
 CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
 
-# --- Daede (外挂版) ---
+# --- Daede (外挂版 - 后台自行手动安装核心) ---
 CONFIG_PACKAGE_luci-app-daede=y
 CONFIG_PACKAGE_ca-bundle=y
 CONFIG_PACKAGE_kmod-nft-tproxy=y

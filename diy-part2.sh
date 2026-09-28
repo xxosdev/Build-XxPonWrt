@@ -9,20 +9,15 @@ echo "执行自定义修改与注入公共配置 (diy-part2.sh)"
 echo "=========================================="
 
 # ---------------------------------------------------------
-# 1. 基础系统设置：修改默认主机名、IP 和 WIFI 名称 (如需开启，请取消对应的注释)
+# 1. 基础系统设置：修改默认主机名、IP 和 WIFI 名称
 # ---------------------------------------------------------
-# 修改默认主机名
 # sed -i 's/OpenWrt/PONWrt/g' package/base-files/files/bin/config_generate
-
-# 修改默认 IP 地址
 # sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generate
-
-# 修改默认 WIFI 名称
 # sed -i 's/ssid=OpenWrt/ssid=PONWrt_WIFI/g' package/kernel/mac80211/files/lib/wifi/mac80211.sh
 # sed -i 's/ssid="OpenWrt"/ssid="PONWrt_WIFI"/g' package/kernel/mac80211/files/lib/wifi/mac80211.sh
 
 # ---------------------------------------------------------
-# 2. 修改 config_generate 的默认值（首次开机生成的 /etc/config/system）
+# 2. 修改 config_generate 的默认值
 # ---------------------------------------------------------
 CFG="package/base-files/files/bin/config_generate"
 if [ -f "$CFG" ]; then
@@ -38,7 +33,6 @@ fi
 # ---------------------------------------------------------
 mkdir -p files/etc/uci-defaults
 
-# 时区设置脚本
 cat > files/etc/uci-defaults/99-timezone-cn <<'EOF'
 #!/bin/sh
 uci -q batch <<'UCI'
@@ -50,7 +44,6 @@ exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-timezone-cn
 
-# 默认关闭 Lucky 自启脚本
 cat > files/etc/uci-defaults/99-disable-lucky <<'EOF'
 #!/bin/sh
 if [ -f "/etc/init.d/lucky" ]; then
@@ -60,8 +53,7 @@ fi
 exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-disable-lucky
-
-echo "✅ uci-defaults 初始化脚本已写入 (时区配置 + 默认关闭 Lucky)"
+echo "✅ uci-defaults 初始化脚本已写入"
 
 # ---------------------------------------------------------
 # 4. 补上亚洲时区数据库包
@@ -73,40 +65,66 @@ if [ -f .config ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 下载预编译二进制 (Xray-core、Geo数据、geoview)
+# 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box, dae, daed)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."
 mkdir -p files/usr/bin
 mkdir -p files/usr/share/v2ray
 
-# 5.1 【优化点 1】拉取 Xray-core 及 Geo 数据 (使用 /releases 接口提取绝对最新版)
+# 5.1 拉取 Xray-core 及 Geo 数据
 XRAY_URL=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases | grep "browser_download_url.*Xray-linux-arm64-v8a.zip" | head -n 1 | cut -d '"' -f 4)
 if [ -n "$XRAY_URL" ]; then
   wget -qO /tmp/xray.zip "$XRAY_URL"
-  # 提取 xray 本体到 /usr/bin/
   unzip -qo /tmp/xray.zip xray -d files/usr/bin/
   chmod +x files/usr/bin/xray
-  # 提取 geoip.dat 和 geosite.dat 到 /usr/share/v2ray/
   unzip -qo /tmp/xray.zip geoip.dat geosite.dat -d files/usr/share/v2ray/
   rm -f /tmp/xray.zip
-  echo "✅ 绝对最新版 Xray-core 及 Geo 数据已就绪"
-else
-  echo "::warning::拉取 Xray-core 失败"
+  echo "✅ 最新版 Xray-core 及 Geo 数据已就绪"
 fi
 
-# 5.2 【优化点 1】拉取 geoview (使用 /releases API)
+# 5.2 拉取 geoview
 GEOVIEW_URL=$(curl -s https://api.github.com/repos/snowie2000/geoview/releases | grep "browser_download_url.*geoview-linux-arm64" | head -n 1 | cut -d '"' -f 4)
 if [ -n "$GEOVIEW_URL" ]; then
   wget -qO files/usr/bin/geoview "$GEOVIEW_URL"
   chmod +x files/usr/bin/geoview
-  echo "✅ geoview 预编译二进制已就绪"
-else
-  echo "::warning::拉取 geoview 失败"
-  rm -f files/usr/bin/geoview
+  echo "✅ geoview 已就绪"
+fi
+
+# 5.3 拉取 Sing-box 核心
+SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-armv8.tar.gz" | head -n 1 | cut -d '"' -f 4)
+[ -z "$SINGBOX_URL" ] && SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
+if [ -n "$SINGBOX_URL" ]; then
+  wget -qO /tmp/singbox.tar.gz "$SINGBOX_URL"
+  tar -xzf /tmp/singbox.tar.gz -C /tmp/
+  mv /tmp/sing-box-*/sing-box files/usr/bin/
+  chmod +x files/usr/bin/sing-box
+  rm -rf /tmp/singbox* /tmp/sing-box*
+  echo "✅ 最新版 Sing-box 核心已就绪"
+fi
+
+# 5.4 拉取 dae 和 daed 核心
+DAE_URL=$(curl -s https://api.github.com/repos/daeuniverse/dae/releases | grep "browser_download_url.*dae-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
+if [ -n "$DAE_URL" ]; then
+  wget -qO /tmp/dae.zip "$DAE_URL"
+  mkdir -p /tmp/dae_ext && unzip -qo /tmp/dae.zip -d /tmp/dae_ext/
+  find /tmp/dae_ext -type f -exec mv {} files/usr/bin/dae \;
+  chmod +x files/usr/bin/dae
+  rm -rf /tmp/dae*
+  echo "✅ 最新版 dae 核心已就绪"
+fi
+
+DAED_URL=$(curl -s https://api.github.com/repos/daeuniverse/daed/releases | grep "browser_download_url.*daed-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
+if [ -n "$DAED_URL" ]; then
+  wget -qO /tmp/daed.zip "$DAED_URL"
+  mkdir -p /tmp/daed_ext && unzip -qo /tmp/daed.zip -d /tmp/daed_ext/
+  find /tmp/daed_ext -type f -exec mv {} files/usr/bin/daed \;
+  chmod +x files/usr/bin/daed
+  rm -rf /tmp/daed*
+  echo "✅ 最新版 daed 核心已就绪"
 fi
 
 # ---------------------------------------------------------
-# 6. 【关键修复】补齐 OpenWrt 缺失的 kmod-xdp-sockets-diag 内核模块定义 (daed 刚需)
+# 6. 【精细修复】铺路生成 kmod-xdp-sockets-diag 安装包
 # ---------------------------------------------------------
 NETSUPPORT_MK="package/kernel/linux/modules/netsupport.mk"
 if [ -f "$NETSUPPORT_MK" ] && ! grep -q "xdp-sockets-diag" "$NETSUPPORT_MK"; then
@@ -129,24 +147,21 @@ EOF
   echo "✅ 已向 netsupport.mk 成功注入 kmod-xdp-sockets-diag 模块定义"
 fi
 
-# 强制内核开启 XDP_SOCKETS 特性 (强烈建议内建设为 y)
+# 【修改】：内核基础特性开启(=y)，但诊断接口不强制内建，这样编译系统才会去生成独立的 kmod 安装包
 for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
   if [ -f "$cfg" ]; then
     sed -i '/CONFIG_XDP_SOCKETS/d' "$cfg"
     echo "CONFIG_XDP_SOCKETS=y" >> "$cfg"
-    echo "CONFIG_XDP_SOCKETS_DIAG=y" >> "$cfg"
   fi
 done
 
-# 全局剔除官方 feeds 包可能带来的 xdp 依赖链，防止打包报错
-find package/ feeds/ -name "Makefile" | xargs sed -i 's/+kmod-xdp-sockets-diag//g' 2>/dev/null
-echo "✅ XDP Sockets 诊断支持已直接内建至内核配置"
+# 注意：这里我们不再剔除全局的依赖，因为你需要生成这个独立的包
 
 # ---------------------------------------------------------
-# 7. 向 .config 强制注入公共的软件包配置 (严禁修改下方格式缩进)
+# 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
 if [ -f .config ]; then
-  # 彻底清除所有可能被自动勾选的 Go 核心和 openlist 干扰
+  # 彻底清除所有干扰
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
@@ -154,6 +169,8 @@ if [ -f .config ]; then
   sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
   sed -i '/CONFIG_PACKAGE_openlist/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-openlist/d' .config
+  sed -i '/CONFIG_PACKAGE_dae=/d' .config
+  sed -i '/CONFIG_PACKAGE_daed=/d' .config
 
   cat >> .config <<EOF
 
@@ -165,8 +182,7 @@ if [ -f .config ]; then
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
-
-# 【优化点 2】：移除 Openlist2 的注入
+CONFIG_PACKAGE_luci-app-homeproxy=y
 
 # --- 官方 feeds 源自带的插件 ---
 CONFIG_PACKAGE_luci-app-filemanager=y
@@ -178,25 +194,15 @@ CONFIG_PACKAGE_etherwake=y
 CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
-# --- kmod-nft-queue主要用于fakehttp ---
 CONFIG_PACKAGE_kmod-nft-queue=y
 
 # --- Daed库 ---
-# 1. 对应 kmod-sched-bpf
-#CONFIG_PACKAGE_kmod-sched-bpf=y
-# 2. 对应 kmod-veth
-#CONFIG_PACKAGE_kmod-veth=y
-# 【优化点 3】：kmod-xdp-sockets-diag 已内建到系统内核中，严禁此处再次勾选打包！
-#CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-# dae / eBPF 运行必须的底层依赖（务必一并开启）
-#CONFIG_KERNEL_BPF_EVENTS=y
-#CONFIG_BPF_TOOLCHAIN=y
+# 【恢复】：要求系统打包生成此模块
+CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
 
 # --- Daede (dae / daed + luci-app-daede) 完整支持 ---
-# 1. 前端与核心
+# 只编译前端面板。核心程序不再触发 Go 编译
 CONFIG_PACKAGE_luci-app-daede=y
-CONFIG_PACKAGE_dae=y
-CONFIG_PACKAGE_daed=y
 
 # 2. 证书与网络依赖
 CONFIG_PACKAGE_ca-bundle=y
@@ -226,30 +232,13 @@ CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
 CONFIG_MINIUPNPD_PCP_PEER=y
 
-# --- Passwall 2 纯界面面板 (零 Go 核心编译) ---
+# --- Passwall 2 纯界面面板 ---
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
 
-# --- Passwall 2 主程序与精确核心配置 ---
-#CONFIG_PACKAGE_luci-app-passwall2=y
-
-# 强制关闭全量核心 (防止带出所有依赖)
-# CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_All is not set
-
-# 开启 Xray 和 Sing-box 核心
-#CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray=y
-#CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Sing_Box=y
-
-# 强制关闭 Rust 核心及其他不必要组件，极大缩短编译时间
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Server is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Tuic is not set
-# CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy is not set
-
 EOF
-  echo "✅ 公共软件包及 Passwall2 核心配置已注入 .config"
+  echo "✅ 公共软件包及配置已注入 .config"
 else
   echo "::warning::未找到 .config 文件，跳过公共软件包注入"
 fi

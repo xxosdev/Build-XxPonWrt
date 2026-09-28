@@ -18,22 +18,21 @@ mkdir -p "$PKG_DIR"
 ADD_AIROHA_NPU=true    # luci-app-airoha-npu: Airoha SoC 状态页 (NPU/CPU等)
 
 # 科学上网与 DNS
-ADD_DAEDE=true        # luci-app-daede & dae/daed 透明代理
-ADD_PASSWALL2=true     # luci-app-passwall2: 科学上网 (核心精简请在 diy-part2.sh 配置)
+ADD_DAEDE=true         # luci-app-daede & dae/daed 透明代理 (保留界面)
+ADD_HONK=true          # luci-app-honk & honk: dae的下一代演进版
+ADD_PASSWALL2=true     # luci-app-passwall2: 科学上网
 ADD_HOMEPROXY=true     # luci-app-homeproxy: 新增 Homeproxy 面板
 ADD_MOSDNS=false       # luci-app-mosdns: DNS 防泄漏 + v2ray-geodata
 ADD_SMARTDNS=false     # luci-app-smartdns: DNS 加速
 
 # 网络与组网
-ADD_LUCKY=true        # luci-app-lucky: 大吉 (DDNS/端口转发/Socat)
+ADD_LUCKY=true         # luci-app-lucky: 大吉 (DDNS/端口转发/Socat)
 ADD_TAILSCALE=false    # luci-app-tailscale: 虚拟局域网
-ADD_EASYTIER=true      # luci-app-easytier: EasyTier 组网 (第三方源)
+ADD_EASYTIER=true      # luci-app-easytier: EasyTier 组网
 
 # 存储与界面
 ADD_OPENLIST=false     # luci-app-openlist2: 网盘挂载 (已关闭)
-ADD_THEME_AURORA=true  # luci-theme-aurora: Aurora 主题 (第三方源)
-
-# 注: luci-app-filemanager 等官方源已有的包，无需在此拉取，直接在 diy-part2.sh 启用即可。
+ADD_THEME_AURORA=true  # luci-theme-aurora: Aurora 主题
 
 # ---------------------------------------------------------
 # 2. 复制本地自带包
@@ -69,7 +68,16 @@ if [ "$ADD_AIROHA_NPU" = "true" ]; then
   clone https://github.com/luanmuc/luci-app-airoha-npu "$PKG_DIR/luci-app-airoha-npu" main
 fi
 
-# 剔除 daede 的 Go 编译
+# 【提取 Honk】从 small 综合库中单独精准提取 honk 源码
+if [ "$ADD_HONK" = "true" ]; then
+  echo "📥 正在拉取 honk 与 luci-app-honk..."
+  git clone --depth 1 https://github.com/kenzok8/small /tmp/small_pkg
+  cp -r /tmp/small_pkg/honk "$PKG_DIR/"
+  cp -r /tmp/small_pkg/luci-app-honk "$PKG_DIR/"
+  rm -rf /tmp/small_pkg
+  echo "✅ 已成功提取 honk 与 luci-app-honk"
+fi
+
 if [ "$ADD_DAEDE" = "true" ]; then
   clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
   find "$PKG_DIR/openwrt-daede" -name "Makefile" | while read -r mk; do
@@ -85,6 +93,15 @@ fi
 
 if [ "$ADD_PASSWALL2" = "true" ] || [ "$ADD_HOMEPROXY" = "true" ]; then
   [ "$ADD_PASSWALL2" = "true" ] && clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
+
+  find "$PKG_DIR" -name "Makefile" | while read -r mk; do
+    sed -i 's/+geoview//g' "$mk"
+    sed -i 's/+PACKAGE_geoview:geoview//g' "$mk"
+    sed -i -E 's/\+PACKAGE_[^:]+:[^ \t\\]+//g' "$mk"
+    sed -i 's/+v2ray-plugin//g; s/+xray-core//g; s/+sing-box//g' "$mk"
+    sed -i '/define Package.*\/config/,/endef/d' "$mk"
+  done
+  echo "✅ 已全局强行清洗面板插件的所有 Go 核心依赖"
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -133,6 +150,7 @@ rm -rf feeds/packages/net/sing-box
 rm -rf feeds/packages/net/openlist
 rm -rf feeds/packages/net/dae
 rm -rf feeds/packages/net/daed
+rm -rf feeds/packages/net/honk
 rm -rf package/feeds/packages/geoview
 rm -rf package/feeds/packages/v2ray-plugin
 rm -rf package/feeds/packages/xray-core
@@ -140,6 +158,7 @@ rm -rf package/feeds/packages/sing-box
 rm -rf package/feeds/packages/openlist
 rm -rf package/feeds/packages/dae
 rm -rf package/feeds/packages/daed
+rm -rf package/feeds/packages/honk
 
 # 删除官方自带的重名面板，强迫系统使用我们在 custom 中清洗过的版本
 rm -rf feeds/luci/applications/luci-app-homeproxy
@@ -147,8 +166,7 @@ rm -rf feeds/luci/applications/luci-app-passwall
 rm -rf package/feeds/luci/luci-app-homeproxy
 rm -rf package/feeds/luci/luci-app-passwall
 
-# 【核心必杀技】：全局扫描所有包的 Makefile，将对 Go 核心的打包依赖字眼抹杀干净
-# 这样无论在生成 apk 还是固件时，都不会再索要 sing-box、xray-core 等包裹
+# 全局扫描清洗 Go 核心打包依赖（注意这里不能屏蔽 honk，因为 honk 可以正常编译打包）
 echo "🔍 正在进行全局依赖强行清洗..."
 find package/ feeds/ -name "Makefile" | xargs sed -i 's/+sing-box//g; s/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null
 

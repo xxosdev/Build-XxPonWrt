@@ -73,7 +73,7 @@ if [ -f .config ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 下载预编译二进制核心 (仅保留 Xray 和 Geoview)
+# 5. 下载预编译二进制核心 (Xray 和 Geoview)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."
 mkdir -p files/usr/bin
@@ -99,7 +99,7 @@ if [ -n "$GEOVIEW_URL" ]; then
 fi
 
 # ---------------------------------------------------------
-# 6. 【精细修复】铺路生成 kmod-xdp-sockets-diag + 强开 BTF 内核模块
+# 6. 【精细修复】铺路生成 kmod-xdp-sockets-diag (剔除导致弹窗的内核参数)
 # ---------------------------------------------------------
 NETSUPPORT_MK="package/kernel/linux/modules/netsupport.mk"
 if [ -f "$NETSUPPORT_MK" ] && ! grep -q "xdp-sockets-diag" "$NETSUPPORT_MK"; then
@@ -121,25 +121,17 @@ $(eval $(call KernelPackage,xdp-sockets-diag))
 EOF
 fi
 
-# 【关键改动】：修改内核配置，坚决禁用精简模式，确保 BTF 完整生成
+# 【修复】：绝不能在这里强开 DEBUG_INFO！会导致交互式单选题弹窗卡死编译！
+# 仅开启透明代理必须的 XDP Sockets 基础底层支持即可
 for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
   if [ -f "$cfg" ]; then
-    # XDP Sockets
     sed -i '/CONFIG_XDP_SOCKETS/d' "$cfg"
-    echo "CONFIG_XDP_SOCKETS=y" >> "$cfg"
-    
-    # 强制开启完整调试与 BTF，并禁止内核精简调试信息
-    sed -i '/CONFIG_DEBUG_INFO_REDUCED/d' "$cfg"
-    sed -i '/CONFIG_DEBUG_INFO_BTF/d' "$cfg"
-    sed -i '/CONFIG_DEBUG_INFO/d' "$cfg"
     sed -i '/CONFIG_BPF_SYSCALL/d' "$cfg"
-    echo "# CONFIG_DEBUG_INFO_REDUCED is not set" >> "$cfg"
-    echo "CONFIG_DEBUG_INFO=y" >> "$cfg"
-    echo "CONFIG_DEBUG_INFO_BTF=y" >> "$cfg"
+    echo "CONFIG_XDP_SOCKETS=y" >> "$cfg"
     echo "CONFIG_BPF_SYSCALL=y" >> "$cfg"
   fi
 done
-echo "✅ 已向底层内核强制注入 BTF 支持，解决透明代理无法读取内核态的问题！"
+echo "✅ 已向底层内核强制注入 XDP 支持"
 
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
@@ -150,14 +142,14 @@ if [ -f .config ]; then
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
   sed -i '/CONFIG_PACKAGE_sing-box/d' .config
-  sed -i '/CONFIG_PACKAGE_luci-app-homeproxy/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
   sed -i '/CONFIG_PACKAGE_openlist/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-openlist/d' .config
   sed -i '/CONFIG_PACKAGE_dae=/d' .config
   sed -i '/CONFIG_PACKAGE_daed=/d' .config
   
-  # 在 OpenWrt 主配置层面也要强行剥离精简模式
+  # 【完美避坑】：在最表层 .config 开启 BTF 并禁止精简模式。
+  # OpenWrt 编译系统会自动帮我们选好 DWARF 格式，不会弹窗卡死！
   sed -i '/CONFIG_KERNEL_DEBUG_INFO_REDUCED/d' .config
   echo "# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set" >> .config
 
@@ -199,7 +191,7 @@ CONFIG_PACKAGE_kmod-sched-bpf=y
 CONFIG_PACKAGE_kmod-sched-core=y
 CONFIG_PACKAGE_kmod-veth=y
 
-# BTF 与 eBPF 特性 (坚决开启)
+# BTF 与 eBPF 特性 (在表层开启，由系统自动解析处理)
 CONFIG_KERNEL_DEBUG_INFO=y
 CONFIG_KERNEL_DEBUG_INFO_BTF=y
 CONFIG_KERNEL_BPF_EVENTS=y

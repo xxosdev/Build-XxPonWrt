@@ -80,17 +80,22 @@ fi
 
 if [ "$ADD_DAEDE" = "true" ]; then
   clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
+  
+  # 【致命修复】：直接物理删除拉取下来的大核心源码，彻底防止被系统扫描到并触发 Go 编译！
+  rm -rf "$PKG_DIR/openwrt-daede/dae"
+  rm -rf "$PKG_DIR/openwrt-daede/daed"
+  
+  # 仅仅针对 daede 界面自己的 Makefile 清洗依赖
   find "$PKG_DIR/openwrt-daede" -name "Makefile" | while read -r mk; do
-    sed -i 's/+dae//g' "$mk"
     sed -i 's/+daed//g' "$mk"
+    sed -i 's/+dae//g' "$mk"
   done
-  echo "✅ 已剔除 daede 界面对 dae/daed Go核心的编译依赖"
+  echo "✅ 已彻底删除 dae/daed 源码包，并剔除界面的编译依赖"
 fi
 
 # 【PassWall 2】
 if [ "$ADD_PASSWALL2" = "true" ]; then
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
-  # 全局强杀依赖：这次连 sing-box 也一并杀掉
   find "$PKG_DIR/luci-app-passwall2" -name "Makefile" | while read -r mk; do
     sed -i 's/+geoview//g' "$mk"
     sed -i 's/+PACKAGE_geoview:geoview//g' "$mk"
@@ -98,7 +103,7 @@ if [ "$ADD_PASSWALL2" = "true" ]; then
     sed -i 's/+v2ray-plugin//g; s/+xray-core//g; s/+sing-box//g' "$mk"
     sed -i '/define Package.*\/config/,/endef/d' "$mk"
   done
-  echo "✅ 已全局强行清洗 Passwall2 面板的编译依赖 (包括 sing-box)"
+  echo "✅ 已强行清洗 Passwall2 面板的编译依赖"
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -128,14 +133,14 @@ if [ "$ADD_THEME_AURORA" = "true" ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 校验与全局依赖死刑清洗（关键防报错）
+# 5. 校验与全局防冲突清洗
 # ---------------------------------------------------------
 if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; then
   echo "❌ ::error::luci-app-airoha-npu 源码未拉取成功，将导致配置被剔除！"
   exit 1
 fi
 
-# 物理删除官方源中会冲突报错的核心源码包（包括 sing-box）
+# 物理删除官方源中会冲突报错的核心源码包及官方重名面板，防患于未然
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core
@@ -143,6 +148,8 @@ rm -rf feeds/packages/net/sing-box
 rm -rf feeds/packages/net/openlist
 rm -rf feeds/packages/net/dae
 rm -rf feeds/packages/net/daed
+rm -rf feeds/packages/net/honk
+
 rm -rf package/feeds/packages/geoview
 rm -rf package/feeds/packages/v2ray-plugin
 rm -rf package/feeds/packages/xray-core
@@ -150,16 +157,19 @@ rm -rf package/feeds/packages/sing-box
 rm -rf package/feeds/packages/openlist
 rm -rf package/feeds/packages/dae
 rm -rf package/feeds/packages/daed
+rm -rf package/feeds/packages/honk
 
-# 删除官方自带的重名面板
 rm -rf feeds/luci/applications/luci-app-homeproxy
 rm -rf feeds/luci/applications/luci-app-passwall
+rm -rf feeds/luci/applications/luci-app-dae
+rm -rf feeds/luci/applications/luci-app-daed
+
 rm -rf package/feeds/luci/luci-app-homeproxy
 rm -rf package/feeds/luci/luci-app-passwall
+rm -rf package/feeds/luci/luci-app-dae
+rm -rf package/feeds/luci/luci-app-daed
 
-# 全局扫描清洗核心打包依赖（这次彻底连同 sing-box 一起清洗）
-echo "🔍 正在进行全局依赖强行清洗..."
-find package/ feeds/ -name "Makefile" | xargs sed -i 's/+sing-box//g; s/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null
+# （不再执行导致 WARNING 报错的危险全局 Sed 命令！）
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true

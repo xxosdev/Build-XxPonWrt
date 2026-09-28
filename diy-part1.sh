@@ -81,16 +81,16 @@ fi
 if [ "$ADD_DAEDE" = "true" ]; then
   clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
   
-  # 【致命修复】：直接物理删除拉取下来的大核心源码，彻底防止被系统扫描到并触发 Go 编译！
-  rm -rf "$PKG_DIR/openwrt-daede/dae"
-  rm -rf "$PKG_DIR/openwrt-daede/daed"
+  # 【致命修复】：只删除 Makefile，让 OpenWrt 瞎掉不编译它，但保留配置文件供面板复制！
+  rm -f "$PKG_DIR/openwrt-daede/dae/Makefile"
+  rm -f "$PKG_DIR/openwrt-daede/daed/Makefile"
   
   # 仅仅针对 daede 界面自己的 Makefile 清洗依赖
   find "$PKG_DIR/openwrt-daede" -name "Makefile" | while read -r mk; do
     sed -i 's/+daed//g' "$mk"
     sed -i 's/+dae//g' "$mk"
   done
-  echo "✅ 已彻底删除 dae/daed 源码包，并剔除界面的编译依赖"
+  echo "✅ 已完美剔除 dae/daed 核心的编译资格，并保留静态文件供界面使用"
 fi
 
 # 【PassWall 2】
@@ -169,7 +169,7 @@ rm -rf package/feeds/luci/luci-app-passwall
 rm -rf package/feeds/luci/luci-app-dae
 rm -rf package/feeds/luci/luci-app-daed
 
-# （不再执行导致 WARNING 报错的危险全局 Sed 命令！）
+# (不再执行全局 Sed，防止误伤其他 Makefile 依赖名)
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true

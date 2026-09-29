@@ -18,8 +18,8 @@ mkdir -p "$PKG_DIR"
 ADD_AIROHA_NPU=true    # luci-app-airoha-npu: Airoha SoC 状态页 (NPU/CPU等)
 
 # 科学上网与 DNS
-ADD_DAEDE=true         # luci-app-daede & dae/daed 透明代理 (保留界面)
-ADD_HONK=true          # luci-app-honk & honk: dae的下一代演进版
+ADD_DAEDE=false        # 已关闭: 避免 daed Go源码交叉编译报错，全面改用更稳定的 honk
+ADD_HONK=true          # luci-app-honk & honk: dae的下一代演进版 (已编译成功)
 ADD_PASSWALL2=true     # luci-app-passwall2: 科学上网
 ADD_HOMEPROXY=true     # luci-app-homeproxy: 新增 Homeproxy 面板
 ADD_MOSDNS=false       # luci-app-mosdns: DNS 防泄漏 + v2ray-geodata
@@ -78,38 +78,22 @@ if [ "$ADD_HONK" = "true" ]; then
   echo "✅ 已成功提取 honk 与 luci-app-honk"
 fi
 
-if [ "$ADD_DAEDE" = "true" ]; then
-  clone https://github.com/kenzok8/openwrt-daede "$PKG_DIR/openwrt-daede" main
-  find "$PKG_DIR/openwrt-daede" -name "Makefile" | while read -r mk; do
-    sed -i 's/+dae//g' "$mk"
-    sed -i 's/+daed//g' "$mk"
-  done
-  echo "✅ 已剔除 daede 界面对 dae/daed Go核心的编译依赖"
-fi
+# 彻底清理残留的 openwrt-daede 目录，防止遗留源码被构建系统扫描
+rm -rf "$PKG_DIR/openwrt-daede"
 
-# 【提取 Homeproxy 与配套的 sing-box 源码】
 if [ "$ADD_HOMEPROXY" = "true" ]; then
-    git clone --depth=1 --filter=blob:none --sparse https://github.com/VIKINGYFY/packages "$PKG_DIR/temp-packages"
-    (
-        cd "$PKG_DIR/temp-packages" || exit 1
-        git sparse-checkout set luci-app-homeproxy sing-box
-    )
-    mv "$PKG_DIR/temp-packages/luci-app-homeproxy" "$PKG_DIR/luci-app-homeproxy"
-    mv "$PKG_DIR/temp-packages/sing-box" "$PKG_DIR/sing-box"
-    rm -rf "$PKG_DIR/temp-packages"
-
-    # [核心修复] 剔除导致 Go Protobuf 冲突报错的 with_tailscale 编译标签
-    if [ -f "$PKG_DIR/sing-box/Makefile" ]; then
-        sed -i 's/,with_tailscale//g' "$PKG_DIR/sing-box/Makefile"
-        sed -i 's/with_tailscale,//g' "$PKG_DIR/sing-box/Makefile"
-        echo "✅ 已剔除 sing-box 中冲突的 with_tailscale 编译标签"
-    fi
-    echo "✅ 已拉取 VIKINGYFY 的 luci-app-homeproxy 与配套 sing-box 源码"
+  git clone --depth=1 --filter=blob:none --sparse https://github.com/VIKINGYFY/packages "$PKG_DIR/temp-packages"
+  (
+    cd "$PKG_DIR/temp-packages" || exit 1
+    git sparse-checkout set luci-app-homeproxy
+  )
+  mv "$PKG_DIR/temp-packages/luci-app-homeproxy" "$PKG_DIR/luci-app-homeproxy"
+  rm -rf "$PKG_DIR/temp-packages"
+  echo "✅ 已拉取 VIKINGYFY 的 luci-app-homeproxy"
 fi
 
 if [ "$ADD_PASSWALL2" = "true" ]; then
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
-
   find "$PKG_DIR/luci-app-passwall2" -name "Makefile" | while read -r mk; do
     sed -i 's/+geoview//g' "$mk"
     sed -i 's/+PACKAGE_geoview:geoview//g' "$mk"
@@ -151,14 +135,14 @@ if [ "$ADD_THEME_AURORA" = "true" ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 校验与全局依赖清理
+# 5. 校验与清理
 # ---------------------------------------------------------
 if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; then
   echo "❌ ::error::luci-app-airoha-npu 源码未拉取成功，将导致配置被剔除！"
   exit 1
 fi
 
-# 物理删除官方源中会冲突报错的核心源码包（使用我们 custom 中的版本）
+# 物理删除官方源中会冲突报错的核心源码包
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core
@@ -182,8 +166,7 @@ rm -rf feeds/luci/applications/luci-app-passwall
 rm -rf package/feeds/luci/luci-app-homeproxy
 rm -rf package/feeds/luci/luci-app-passwall
 
-# 全局扫描清洗 Go 核心打包依赖（保留 sing-box 和 honk，因为要从源码编译）
-echo "🔍 正在进行全局依赖强行清洗..."
+# 清理常规 Go 核心的强行编译依赖
 find package/ feeds/ -name "Makefile" 2>/dev/null | xargs sed -i 's/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null || true
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then

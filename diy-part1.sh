@@ -97,10 +97,16 @@ if [ "$ADD_HOMEPROXY" = "true" ]; then
     mv "$PKG_DIR/temp-packages/luci-app-homeproxy" "$PKG_DIR/luci-app-homeproxy"
     mv "$PKG_DIR/temp-packages/sing-box" "$PKG_DIR/sing-box"
     rm -rf "$PKG_DIR/temp-packages"
+
+    # [核心修复] 剔除导致 Go Protobuf 冲突报错的 with_tailscale 编译标签
+    if [ -f "$PKG_DIR/sing-box/Makefile" ]; then
+        sed -i 's/,with_tailscale//g' "$PKG_DIR/sing-box/Makefile"
+        sed -i 's/with_tailscale,//g' "$PKG_DIR/sing-box/Makefile"
+        echo "✅ 已剔除 sing-box 中冲突的 with_tailscale 编译标签"
+    fi
     echo "✅ 已拉取 VIKINGYFY 的 luci-app-homeproxy 与配套 sing-box 源码"
 fi
 
-# 【精准清洗 passwall2 的核心依赖，不波及 homeproxy 和 sing-box】
 if [ "$ADD_PASSWALL2" = "true" ]; then
   clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
 
@@ -145,14 +151,14 @@ if [ "$ADD_THEME_AURORA" = "true" ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 校验与全局依赖死刑清洗（关键防报错）
+# 5. 校验与全局依赖清理
 # ---------------------------------------------------------
 if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; then
   echo "❌ ::error::luci-app-airoha-npu 源码未拉取成功，将导致配置被剔除！"
   exit 1
 fi
 
-# 物理删除官方源中会冲突报错的核心源码包（确保使用我们 custom 中的版本）
+# 物理删除官方源中会冲突报错的核心源码包（使用我们 custom 中的版本）
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core
@@ -170,15 +176,15 @@ rm -rf package/feeds/packages/dae
 rm -rf package/feeds/packages/daed
 rm -rf package/feeds/packages/honk
 
-# 删除官方自带的重名面板，强迫系统使用我们在 custom 中清洗过的版本
+# 删除官方自带的重名面板
 rm -rf feeds/luci/applications/luci-app-homeproxy
 rm -rf feeds/luci/applications/luci-app-passwall
 rm -rf package/feeds/luci/luci-app-homeproxy
 rm -rf package/feeds/luci/luci-app-passwall
 
-# 全局扫描清洗 Go 核心打包依赖（保留 sing-box 和 honk，因为直接由源码编译）
+# 全局扫描清洗 Go 核心打包依赖（保留 sing-box 和 honk，因为要从源码编译）
 echo "🔍 正在进行全局依赖强行清洗..."
-find package/ feeds/ -name "Makefile" | xargs sed -i 's/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null || true
+find package/ feeds/ -name "Makefile" 2>/dev/null | xargs sed -i 's/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null || true
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true

@@ -9,15 +9,6 @@ echo "执行自定义修改与注入公共配置 (diy-part2.sh)"
 echo "=========================================="
 
 # ---------------------------------------------------------
-# 0. 补全系统编译环境 (安装 pahole 以生成内核 BTF)
-# ---------------------------------------------------------
-if command -v apt-get &> /dev/null; then
-  echo "📦 正在安装 dwarves (pahole) 以确保 Linux 内核成功生成 BTF..."
-  sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y dwarves
-fi
-
-# ---------------------------------------------------------
 # 1. 基础系统设置：修改默认主机名、IP 和 WIFI 名称
 # ---------------------------------------------------------
 # sed -i 's/OpenWrt/PONWrt/g' package/base-files/files/bin/config_generate
@@ -73,7 +64,7 @@ if [ -f .config ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 下载预编译二进制核心 (Xray 和 Geoview)
+# 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box, dae, daed)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."
 mkdir -p files/usr/bin
@@ -98,8 +89,41 @@ if [ -n "$GEOVIEW_URL" ]; then
   echo "✅ geoview 已就绪"
 fi
 
+# 5.3 拉取 Sing-box 核心
+SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
+[ -z "$SINGBOX_URL" ] && SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
+if [ -n "$SINGBOX_URL" ]; then
+  wget -qO /tmp/singbox.tar.gz "$SINGBOX_URL"
+  tar -xzf /tmp/singbox.tar.gz -C /tmp/
+  mv /tmp/sing-box-*/sing-box files/usr/bin/
+  chmod +x files/usr/bin/sing-box
+  rm -rf /tmp/singbox* /tmp/sing-box*
+  echo "✅ 最新版 Sing-box 核心已就绪"
+fi
+
+# 5.4 拉取 dae 和 daed 核心
+DAE_URL=$(curl -s https://api.github.com/repos/daeuniverse/dae/releases | grep "browser_download_url.*dae-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
+if [ -n "$DAE_URL" ]; then
+  wget -qO /tmp/dae.zip "$DAE_URL"
+  mkdir -p /tmp/dae_ext && unzip -qo /tmp/dae.zip -d /tmp/dae_ext/
+  find /tmp/dae_ext -type f -exec mv {} files/usr/bin/dae \;
+  chmod +x files/usr/bin/dae
+  rm -rf /tmp/dae*
+  echo "✅ 最新版 dae 核心已就绪"
+fi
+
+DAED_URL=$(curl -s https://api.github.com/repos/daeuniverse/daed/releases | grep "browser_download_url.*daed-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
+if [ -n "$DAED_URL" ]; then
+  wget -qO /tmp/daed.zip "$DAED_URL"
+  mkdir -p /tmp/daed_ext && unzip -qo /tmp/daed.zip -d /tmp/daed_ext/
+  find /tmp/daed_ext -type f -exec mv {} files/usr/bin/daed \;
+  chmod +x files/usr/bin/daed
+  rm -rf /tmp/daed*
+  echo "✅ 最新版 daed 核心已就绪"
+fi
+
 # ---------------------------------------------------------
-# 6. 【精细修复】铺路生成 kmod-xdp-sockets-diag (剔除导致弹窗的内核参数)
+# 6. 【精细修复】铺路生成 kmod-xdp-sockets-diag 安装包
 # ---------------------------------------------------------
 NETSUPPORT_MK="package/kernel/linux/modules/netsupport.mk"
 if [ -f "$NETSUPPORT_MK" ] && ! grep -q "xdp-sockets-diag" "$NETSUPPORT_MK"; then
@@ -121,37 +145,25 @@ $(eval $(call KernelPackage,xdp-sockets-diag))
 EOF
 fi
 
-# 【修复】：绝不能在这里强开 DEBUG_INFO！会导致交互式单选题弹窗卡死编译！
-# 仅开启透明代理必须的 XDP Sockets 基础底层支持即可
+# 内核基础特性开启(=y)，让系统正常打包生成 kmod 安装包
 for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
   if [ -f "$cfg" ]; then
     sed -i '/CONFIG_XDP_SOCKETS/d' "$cfg"
-    sed -i '/CONFIG_BPF_SYSCALL/d' "$cfg"
     echo "CONFIG_XDP_SOCKETS=y" >> "$cfg"
-    echo "CONFIG_BPF_SYSCALL=y" >> "$cfg"
   fi
 done
-echo "✅ 已向底层内核强制注入 XDP 支持"
 
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
 if [ -f .config ]; then
-  # 彻底清除干扰项
+  # 清除干扰
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
   sed -i '/CONFIG_PACKAGE_sing-box/d' .config
-  sed -i '/CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_/d' .config
-  sed -i '/CONFIG_PACKAGE_openlist/d' .config
-  sed -i '/CONFIG_PACKAGE_luci-app-openlist/d' .config
   sed -i '/CONFIG_PACKAGE_dae=/d' .config
   sed -i '/CONFIG_PACKAGE_daed=/d' .config
-  
-  # 【完美避坑】：在最表层 .config 开启 BTF 并禁止精简模式。
-  # OpenWrt 编译系统会自动帮我们选好 DWARF 格式，不会弹窗卡死！
-  sed -i '/CONFIG_KERNEL_DEBUG_INFO_REDUCED/d' .config
-  echo "# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set" >> .config
 
   cat >> .config <<EOF
 
@@ -162,13 +174,13 @@ if [ -f .config ]; then
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
+CONFIG_PACKAGE_luci-app-homeproxy=y
 
-# --- Honk 引擎 ---
+# --- 新增: Honk 引擎 ---
 CONFIG_PACKAGE_honk=y
 CONFIG_PACKAGE_luci-app-honk=y
 CONFIG_PACKAGE_ip-full=y
 
-# --- 官方 feeds 源自带的插件 ---
 CONFIG_PACKAGE_luci-app-filemanager=y
 CONFIG_PACKAGE_pbr=y
 CONFIG_PACKAGE_luci-app-pbr=y
@@ -180,45 +192,36 @@ CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
 CONFIG_PACKAGE_kmod-nft-queue=y
 
-# --- Daed库 ---
+# --- Daede (外挂版) ---
 CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-
-# --- Daede (外挂版 - 后台自行手动安装核心) ---
 CONFIG_PACKAGE_luci-app-daede=y
 CONFIG_PACKAGE_ca-bundle=y
 CONFIG_PACKAGE_kmod-nft-tproxy=y
 CONFIG_PACKAGE_kmod-sched-bpf=y
 CONFIG_PACKAGE_kmod-sched-core=y
 CONFIG_PACKAGE_kmod-veth=y
-
-# BTF 与 eBPF 特性 (在表层开启，由系统自动解析处理)
-CONFIG_KERNEL_DEBUG_INFO=y
-CONFIG_KERNEL_DEBUG_INFO_BTF=y
 CONFIG_KERNEL_BPF_EVENTS=y
 CONFIG_BPF_TOOLCHAIN=y
+CONFIG_KERNEL_DEBUG_INFO=y
+CONFIG_KERNEL_DEBUG_INFO_BTF=y
 
-# --- 网络共享: Samba4 服务端及 LuCI 界面 ---
 CONFIG_PACKAGE_samba4-server=y
 CONFIG_PACKAGE_samba4-libs=y
 CONFIG_PACKAGE_luci-app-samba4=y
 CONFIG_PACKAGE_luci-i18n-samba4-zh-cn=y
 CONFIG_PACKAGE_wsdd2=y
 
-# --- 端口映射: UPnP IGD 与 PCP/NAT-PMP 服务 ---
 CONFIG_PACKAGE_miniupnpd=y
 CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
 CONFIG_MINIUPNPD_PCP_PEER=y
 
-# --- Passwall 2 纯界面面板 ---
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
 
 EOF
   echo "✅ 公共软件包及配置已注入 .config"
-else
-  echo "::warning::未找到 .config 文件，跳过公共软件包注入"
 fi
 
 echo "🎉 diy-part2.sh 执行完毕"

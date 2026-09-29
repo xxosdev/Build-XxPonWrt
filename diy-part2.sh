@@ -56,12 +56,19 @@ chmod +x files/etc/uci-defaults/99-disable-lucky
 echo "✅ uci-defaults 初始化脚本已写入"
 
 # ---------------------------------------------------------
-# 4. 补上亚洲时区数据库包
+# 4. 补上亚洲时区数据库包 & 温度下调 10°C 修复
 # ---------------------------------------------------------
 if [ -f .config ]; then
   sed -i '/^CONFIG_PACKAGE_zoneinfo-asia=/d; /^# CONFIG_PACKAGE_zoneinfo-asia is not set/d' .config
   echo "CONFIG_PACKAGE_zoneinfo-asia=y    # 亚洲时区数据库" >> .config
 fi
+
+# 修复 cpuinfo 与 tempinfo 的温度计算偏移 (-10°C)
+find package/ feeds/ files/ -type f \( -name "cpuinfo" -o -name "tempinfo" \) 2>/dev/null | while read -r f; do
+  sed -i 's|printf("%.1f°C", [$]0 / 1000)|printf("%.1f°C", ($0 / 1000) - 10)|g' "$f"
+  sed -i 's|printf("%.1f", v)|printf("%.1f", v - 10)|g' "$f"
+done
+echo "✅ 温度显示偏移已修正 (-10°C)"
 
 # ---------------------------------------------------------
 # 5. 下载预编译二进制核心 (Xray, Geoview, dae, daed)
@@ -89,7 +96,7 @@ if [ -n "$GEOVIEW_URL" ]; then
   echo "✅ geoview 已就绪"
 fi
 
-# 5.3 Sing-box 核心：已改用 package/custom/sing-box 源码编译，无需预下载二进制避免冲突
+# 5.3 Sing-box 核心：由 package/custom/sing-box 源码正常编译，无需预下载二进制
 
 # 5.4 拉取 dae 和 daed 核心
 DAE_URL=$(curl -s https://api.github.com/repos/daeuniverse/dae/releases | grep "browser_download_url.*dae-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
@@ -146,6 +153,15 @@ done
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
+# [关键修复] 清理可能受污染的 protobuf Go 模块缓存，强制重新拉取干净依赖
+rm -rf dl/go-mod-cache/google.golang.org/protobuf* 2>/dev/null || true
+
+# 再次确保 sing-box 的 Makefile 中不含有 with_tailscale
+if [ -f "package/custom/sing-box/Makefile" ]; then
+  sed -i 's/,with_tailscale//g' package/custom/sing-box/Makefile
+  sed -i 's/with_tailscale,//g' package/custom/sing-box/Makefile
+fi
+
 if [ -f .config ]; then
   # 清除干扰（保留 sing-box 正常配置）
   sed -i '/CONFIG_PACKAGE_geoview/d' .config

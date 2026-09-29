@@ -97,16 +97,16 @@ if [ -n "$GEOVIEW_URL" ]; then
 fi
 
 # 5.3 拉取 Sing-box 核心
-SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
-[ -z "$SINGBOX_URL" ] && SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
-if [ -n "$SINGBOX_URL" ]; then
-  wget -qO /tmp/singbox.tar.gz "$SINGBOX_URL"
-  tar -xzf /tmp/singbox.tar.gz -C /tmp/
-  mv /tmp/sing-box-*/sing-box files/usr/bin/
-  chmod +x files/usr/bin/sing-box
-  rm -rf /tmp/singbox* /tmp/sing-box*
-  echo "✅ 最新版 Sing-box 核心已就绪"
-fi
+#SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
+#[ -z "$SINGBOX_URL" ] && SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
+#if [ -n "$SINGBOX_URL" ]; then
+#  wget -qO /tmp/singbox.tar.gz "$SINGBOX_URL"
+#  tar -xzf /tmp/singbox.tar.gz -C /tmp/
+#  mv /tmp/sing-box-*/sing-box files/usr/bin/
+#  chmod +x files/usr/bin/sing-box
+#  rm -rf /tmp/singbox* /tmp/sing-box*
+#  echo "✅ 最新版 Sing-box 核心已就绪"
+#fi
 
 # 5.4 拉取 dae 和 daed 核心
 #DAE_URL=$(curl -s https://api.github.com/repos/daeuniverse/dae/releases | grep "browser_download_url.*dae-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
@@ -168,7 +168,7 @@ if [ -f .config ]; then
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
-  sed -i '/CONFIG_PACKAGE_sing-box/d' .config
+  # sed -i '/CONFIG_PACKAGE_sing-box/d' .config  # 已转为源码编译，不再删除
   sed -i '/CONFIG_PACKAGE_dae=/d' .config
   sed -i '/CONFIG_PACKAGE_daed=/d' .config
 
@@ -182,8 +182,7 @@ CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
 CONFIG_PACKAGE_luci-app-homeproxy=y
-
-
+CONFIG_PACKAGE_sing-box=y
 
 # --- Honk 引擎及其依赖 (全面替代 daed，且无编译报错) ---
 CONFIG_PACKAGE_honk=y
@@ -201,7 +200,6 @@ CONFIG_KERNEL_BPF_EVENTS=y
 CONFIG_BPF_TOOLCHAIN=y
 CONFIG_KERNEL_DEBUG_INFO=y
 CONFIG_KERNEL_DEBUG_INFO_BTF=y
-
 
 # --- 新增: Honk 引擎 ---
 #CONFIG_PACKAGE_honk=y
@@ -231,8 +229,6 @@ CONFIG_PACKAGE_kmod-nft-queue=y
 #CONFIG_BPF_TOOLCHAIN=y
 #CONFIG_KERNEL_DEBUG_INFO=y
 #CONFIG_KERNEL_DEBUG_INFO_BTF=y
-
-
 
 CONFIG_PACKAGE_samba4-server=y
 CONFIG_PACKAGE_samba4-libs=y

@@ -156,8 +156,15 @@ done
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
-# 移除 homeproxy 对 sing-box 编译包的强依赖（扩大搜索范围到 package 与 feeds）
-find package/ feeds/ -name Makefile -path "*/luci-app-homeproxy/*" -exec sed -i -E 's/\+sing-box[^ ]*//g' {} + 2>/dev/null || true
+# [关键修复 2] 兜底清除全部 homeproxy 的 sing-box 依赖，并刷新 packageinfo 缓存
+find package/ feeds/ -type f -name Makefile -path "*/luci-app-homeproxy/*" | while read -r mk; do
+  sed -i -E 's/\+sing-box[>=<0-9\._-]*//g' "$mk"
+  sed -i -E 's/\+sing-box[^ \t\r\n\)]*//g' "$mk"
+  sed -i 's/+sing-box//g' "$mk"
+done 2>/dev/null || true
+
+# 强行清理已生成的旧包依赖元数据缓存，促使 make defconfig 重新读取清洗后的依赖树
+rm -rf tmp/.packageinfo tmp/.targetinfo
 
 if [ -f .config ]; then
   # 清除干扰

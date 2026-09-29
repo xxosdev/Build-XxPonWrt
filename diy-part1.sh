@@ -95,6 +95,14 @@ if [ "$ADD_HOMEPROXY" = "true" ]; then
     )
     mv "$PKG_DIR/temp-packages/luci-app-homeproxy" "$PKG_DIR/luci-app-homeproxy"
     rm -rf "$PKG_DIR/temp-packages"
+
+    # [关键修复 1] 在 feeds install 解析前第一时间清除 sing-box 强依赖
+    find "$PKG_DIR/luci-app-homeproxy" -type f -name "Makefile" | while read -r mk; do
+        sed -i -E 's/\+sing-box[>=<0-9\._-]*//g' "$mk"
+        sed -i -E 's/\+sing-box[^ \t\r\n\)]*//g' "$mk"
+        sed -i 's/+sing-box//g' "$mk"
+    done
+    echo "✅ 已从源码层彻底移除 luci-app-homeproxy 对 sing-box 的依赖声明"
 fi
 
 if [ "$ADD_PASSWALL2" = "true" ] || [ "$ADD_HOMEPROXY" = "true" ]; then
@@ -105,6 +113,8 @@ if [ "$ADD_PASSWALL2" = "true" ] || [ "$ADD_HOMEPROXY" = "true" ]; then
     sed -i 's/+PACKAGE_geoview:geoview//g' "$mk"
     sed -i -E 's/\+PACKAGE_[^:]+:[^ \t\\]+//g' "$mk"
     sed -i 's/+v2ray-plugin//g; s/+xray-core//g; s/+sing-box//g' "$mk"
+    sed -i -E 's/\+sing-box[>=<0-9\._-]*//g' "$mk"
+    sed -i -E 's/\+sing-box[^ \t\r\n\)]*//g' "$mk"
     sed -i '/define Package.*\/config/,/endef/d' "$mk"
   done
   echo "✅ 已全局强行清洗面板插件的所有 Go 核心依赖"
@@ -174,7 +184,7 @@ rm -rf package/feeds/luci/luci-app-passwall
 
 # 全局扫描清洗 Go 核心打包依赖（注意这里不能屏蔽 honk，因为 honk 可以正常编译打包）
 echo "🔍 正在进行全局依赖强行清洗..."
-find package/ feeds/ -name "Makefile" | xargs sed -i 's/+sing-box//g; s/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null
+find package/ feeds/ -name "Makefile" | xargs sed -i -E 's/\+sing-box[>=<0-9\._-]*//g; s/\+sing-box[^ \t\r\n\)]*//g; s/\+sing-box//g; s/\+xray-core//g; s/\+v2ray-plugin//g; s/\+geoview//g; s/\+dae//g; s/\+daed//g; s/\+PACKAGE_geoview:geoview//g' 2>/dev/null || true
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true

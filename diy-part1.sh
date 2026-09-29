@@ -87,37 +87,31 @@ if [ "$ADD_DAEDE" = "true" ]; then
   echo "✅ 已剔除 daede 界面对 dae/daed Go核心的编译依赖"
 fi
 
+# 【提取 Homeproxy 与配套的 sing-box 源码】
 if [ "$ADD_HOMEPROXY" = "true" ]; then
     git clone --depth=1 --filter=blob:none --sparse https://github.com/VIKINGYFY/packages "$PKG_DIR/temp-packages"
     (
         cd "$PKG_DIR/temp-packages" || exit 1
-        git sparse-checkout set luci-app-homeproxy
+        git sparse-checkout set luci-app-homeproxy sing-box
     )
     mv "$PKG_DIR/temp-packages/luci-app-homeproxy" "$PKG_DIR/luci-app-homeproxy"
+    mv "$PKG_DIR/temp-packages/sing-box" "$PKG_DIR/sing-box"
     rm -rf "$PKG_DIR/temp-packages"
-
-    # [关键修复 1] 在 feeds install 解析前第一时间清除 sing-box 强依赖
-    find "$PKG_DIR/luci-app-homeproxy" -type f -name "Makefile" | while read -r mk; do
-        sed -i -E 's/\+sing-box[>=<0-9\._-]*//g' "$mk"
-        sed -i -E 's/\+sing-box[^ \t\r\n\)]*//g' "$mk"
-        sed -i 's/+sing-box//g' "$mk"
-    done
-    echo "✅ 已从源码层彻底移除 luci-app-homeproxy 对 sing-box 的依赖声明"
+    echo "✅ 已拉取 VIKINGYFY 的 luci-app-homeproxy 与配套 sing-box 源码"
 fi
 
-if [ "$ADD_PASSWALL2" = "true" ] || [ "$ADD_HOMEPROXY" = "true" ]; then
-  [ "$ADD_PASSWALL2" = "true" ] && clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
+# 【精准清洗 passwall2 的核心依赖，不波及 homeproxy 和 sing-box】
+if [ "$ADD_PASSWALL2" = "true" ]; then
+  clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
 
-  find "$PKG_DIR" -name "Makefile" | while read -r mk; do
+  find "$PKG_DIR/luci-app-passwall2" -name "Makefile" | while read -r mk; do
     sed -i 's/+geoview//g' "$mk"
     sed -i 's/+PACKAGE_geoview:geoview//g' "$mk"
     sed -i -E 's/\+PACKAGE_[^:]+:[^ \t\\]+//g' "$mk"
-    sed -i 's/+v2ray-plugin//g; s/+xray-core//g; s/+sing-box//g' "$mk"
-    sed -i -E 's/\+sing-box[>=<0-9\._-]*//g' "$mk"
-    sed -i -E 's/\+sing-box[^ \t\r\n\)]*//g' "$mk"
+    sed -i 's/+v2ray-plugin//g; s/+xray-core//g' "$mk"
     sed -i '/define Package.*\/config/,/endef/d' "$mk"
   done
-  echo "✅ 已全局强行清洗面板插件的所有 Go 核心依赖"
+  echo "✅ 已清洗 passwall2 面板的 Go 核心依赖"
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -158,7 +152,7 @@ if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; th
   exit 1
 fi
 
-# 物理删除官方源中会冲突报错的核心源码包
+# 物理删除官方源中会冲突报错的核心源码包（确保使用我们 custom 中的版本）
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core
@@ -182,9 +176,9 @@ rm -rf feeds/luci/applications/luci-app-passwall
 rm -rf package/feeds/luci/luci-app-homeproxy
 rm -rf package/feeds/luci/luci-app-passwall
 
-# 全局扫描清洗 Go 核心打包依赖（注意这里不能屏蔽 honk，因为 honk 可以正常编译打包）
+# 全局扫描清洗 Go 核心打包依赖（保留 sing-box 和 honk，因为直接由源码编译）
 echo "🔍 正在进行全局依赖强行清洗..."
-find package/ feeds/ -name "Makefile" | xargs sed -i -E 's/\+sing-box[>=<0-9\._-]*//g; s/\+sing-box[^ \t\r\n\)]*//g; s/\+sing-box//g; s/\+xray-core//g; s/\+v2ray-plugin//g; s/\+geoview//g; s/\+dae//g; s/\+daed//g; s/\+PACKAGE_geoview:geoview//g' 2>/dev/null || true
+find package/ feeds/ -name "Makefile" | xargs sed -i 's/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null || true
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true

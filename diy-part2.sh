@@ -64,7 +64,7 @@ if [ -f .config ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box, dae, daed)
+# 5. 下载预编译二进制核心 (Xray, Geoview, dae, daed)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."
 mkdir -p files/usr/bin
@@ -89,17 +89,7 @@ if [ -n "$GEOVIEW_URL" ]; then
   echo "✅ geoview 已就绪"
 fi
 
-# 5.3 拉取 Sing-box 核心
-SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
-[ -z "$SINGBOX_URL" ] && SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
-if [ -n "$SINGBOX_URL" ]; then
-  wget -qO /tmp/singbox.tar.gz "$SINGBOX_URL"
-  tar -xzf /tmp/singbox.tar.gz -C /tmp/
-  mv /tmp/sing-box-*/sing-box files/usr/bin/
-  chmod +x files/usr/bin/sing-box
-  rm -rf /tmp/singbox* /tmp/sing-box*
-  echo "✅ 最新版 Sing-box 核心已就绪"
-fi
+# 5.3 Sing-box 核心：已改用 package/custom/sing-box 源码编译，无需预下载二进制避免冲突
 
 # 5.4 拉取 dae 和 daed 核心
 DAE_URL=$(curl -s https://api.github.com/repos/daeuniverse/dae/releases | grep "browser_download_url.*dae-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
@@ -156,22 +146,11 @@ done
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
-# [关键修复 2] 兜底清除全部 homeproxy 的 sing-box 依赖，并刷新 packageinfo 缓存
-find package/ feeds/ -type f -name Makefile -path "*/luci-app-homeproxy/*" | while read -r mk; do
-  sed -i -E 's/\+sing-box[>=<0-9\._-]*//g' "$mk"
-  sed -i -E 's/\+sing-box[^ \t\r\n\)]*//g' "$mk"
-  sed -i 's/+sing-box//g' "$mk"
-done 2>/dev/null || true
-
-# 强行清理已生成的旧包依赖元数据缓存，促使 make defconfig 重新读取清洗后的依赖树
-rm -rf tmp/.packageinfo tmp/.targetinfo
-
 if [ -f .config ]; then
-  # 清除干扰
+  # 清除干扰（保留 sing-box 正常配置）
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
-  sed -i '/CONFIG_PACKAGE_sing-box/d' .config
   sed -i '/CONFIG_PACKAGE_dae=/d' .config
   sed -i '/CONFIG_PACKAGE_daed=/d' .config
 
@@ -185,6 +164,7 @@ CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
 CONFIG_PACKAGE_luci-app-homeproxy=y
+CONFIG_PACKAGE_sing-box=y
 
 # --- 新增: Honk 引擎 ---
 CONFIG_PACKAGE_honk=y

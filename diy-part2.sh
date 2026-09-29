@@ -71,7 +71,7 @@ done
 echo "✅ 温度显示偏移已修正 (-10°C)"
 
 # ---------------------------------------------------------
-# 5. 下载预编译二进制核心 (Xray, Geoview, dae, daed)
+# 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."
 mkdir -p files/usr/bin
@@ -96,53 +96,20 @@ if [ -n "$GEOVIEW_URL" ]; then
   echo "✅ geoview 已就绪"
 fi
 
-# 5.3 Sing-box 核心：由 package/custom/sing-box 源码正常编译，无需预下载二进制
-
-# 5.4 拉取 dae 和 daed 核心
-DAE_URL=$(curl -s https://api.github.com/repos/daeuniverse/dae/releases | grep "browser_download_url.*dae-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
-if [ -n "$DAE_URL" ]; then
-  wget -qO /tmp/dae.zip "$DAE_URL"
-  mkdir -p /tmp/dae_ext && unzip -qo /tmp/dae.zip -d /tmp/dae_ext/
-  find /tmp/dae_ext -type f -exec mv {} files/usr/bin/dae \;
-  chmod +x files/usr/bin/dae
-  rm -rf /tmp/dae*
-  echo "✅ 最新版 dae 核心已就绪"
-fi
-
-DAED_URL=$(curl -s https://api.github.com/repos/daeuniverse/daed/releases | grep "browser_download_url.*daed-linux-arm64.zip" | head -n 1 | cut -d '"' -f 4)
-if [ -n "$DAED_URL" ]; then
-  wget -qO /tmp/daed.zip "$DAED_URL"
-  mkdir -p /tmp/daed_ext && unzip -qo /tmp/daed.zip -d /tmp/daed_ext/
-  find /tmp/daed_ext -type f -exec mv {} files/usr/bin/daed \;
-  chmod +x files/usr/bin/daed
-  rm -rf /tmp/daed*
-  echo "✅ 最新版 daed 核心已就绪"
+# 5.3 拉取官方 Sing-box 核心二进制
+SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
+if [ -n "$SINGBOX_URL" ]; then
+  wget -qO /tmp/singbox.tar.gz "$SINGBOX_URL"
+  tar -xzf /tmp/singbox.tar.gz -C /tmp/
+  mv /tmp/sing-box-*/sing-box files/usr/bin/
+  chmod +x files/usr/bin/sing-box
+  rm -rf /tmp/singbox* /tmp/sing-box*
+  echo "✅ 最新版 Sing-box 核心二进制已就绪"
 fi
 
 # ---------------------------------------------------------
-# 6. 【精细修复】铺路生成 kmod-xdp-sockets-diag 安装包
+# 6. 为 Honk 铺路：开启内核 XDP_SOCKETS
 # ---------------------------------------------------------
-NETSUPPORT_MK="package/kernel/linux/modules/netsupport.mk"
-if [ -f "$NETSUPPORT_MK" ] && ! grep -q "xdp-sockets-diag" "$NETSUPPORT_MK"; then
-  cat >> "$NETSUPPORT_MK" << 'EOF'
-
-define KernelPackage/xdp-sockets-diag
-  SUBMENU:=$(NETWORK_SUPPORT_MENU)
-  TITLE:=PF_XDP sockets monitoring interface support
-  KCONFIG:=CONFIG_XDP_SOCKETS_DIAG
-  FILES:=$(LINUX_DIR)/net/xdp/xsk_diag.ko
-  AUTOLOAD:=$(call AutoLoad,31,xsk_diag)
-endef
-
-define KernelPackage/xdp-sockets-diag/description
- Support for PF_XDP sockets monitoring interface used by the ss tool and daed.
-endef
-
-$(eval $(call KernelPackage,xdp-sockets-diag))
-EOF
-fi
-
-# 内核基础特性开启(=y)，让系统正常打包生成 kmod 安装包
 for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
   if [ -f "$cfg" ]; then
     sed -i '/CONFIG_XDP_SOCKETS/d' "$cfg"
@@ -151,24 +118,65 @@ for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
 done
 
 # ---------------------------------------------------------
-# 7. 向 .config 强制注入公共的软件包配置
+# 7. sing-box 二进制包装包（0秒编译、直接打包下载好的官方二进制）
 # ---------------------------------------------------------
-# [关键修复] 清理可能受污染的 protobuf Go 模块缓存，强制重新拉取干净依赖
-rm -rf dl/go-mod-cache/google.golang.org/protobuf* 2>/dev/null || true
+rm -rf package/custom/sing-box feeds/packages/net/sing-box package/feeds/packages/sing-box
+mkdir -p package/custom/sing-box
 
-# 再次确保 sing-box 的 Makefile 中不含有 with_tailscale
-if [ -f "package/custom/sing-box/Makefile" ]; then
-  sed -i 's/,with_tailscale//g' package/custom/sing-box/Makefile
-  sed -i 's/with_tailscale,//g' package/custom/sing-box/Makefile
-fi
+cat > package/custom/sing-box/Makefile << 'EOF'
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=sing-box
+PKG_VERSION:=1.15.0
+PKG_RELEASE:=1
+
+PKG_LICENSE:=GPL-3.0-or-later
+
+include $(INCLUDE_DIR)/package.mk
+
+define Package/sing-box
+  SECTION:=net
+  CATEGORY:=Network
+  SUBMENU:=Web Servers/Proxies
+  TITLE:=The universal proxy platform (official prebuilt binary)
+  URL:=https://sing-box.sagernet.org/
+  DEPENDS:=+ca-bundle +kmod-inet-diag +kmod-netlink-diag +kmod-tun
+  PROVIDES:=sing-box
+endef
+
+define Package/sing-box/description
+  Prebuilt official sing-box binary package.
+endef
+
+define Build/Prepare
+endef
+
+define Build/Configure
+endef
+
+define Build/Compile
+endef
+
+define Package/sing-box/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	[ -f $(TOPDIR)/files/usr/bin/sing-box ] && $(INSTALL_BIN) $(TOPDIR)/files/usr/bin/sing-box $(1)/usr/bin/sing-box || true
+endef
+
+$(eval $(call BuildPackage,sing-box))
+EOF
+
+# 清理元数据缓存，确保索引干净
+rm -rf tmp/.packageinfo tmp/.targetinfo
 
 if [ -f .config ]; then
-  # 清除干扰（保留 sing-box 正常配置）
+  # 清理旧冲突项
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
-  sed -i '/CONFIG_PACKAGE_dae=/d' .config
-  sed -i '/CONFIG_PACKAGE_daed=/d' .config
+  sed -i '/CONFIG_PACKAGE_sing-box/d' .config
+  sed -i '/CONFIG_PACKAGE_dae/d' .config
+  sed -i '/CONFIG_PACKAGE_daed/d' .config
+  sed -i '/CONFIG_PACKAGE_luci-app-daede/d' .config
 
   cat >> .config <<EOF
 
@@ -182,11 +190,24 @@ CONFIG_PACKAGE_luci-app-lucky=y
 CONFIG_PACKAGE_luci-app-homeproxy=y
 CONFIG_PACKAGE_sing-box=y
 
-# --- 新增: Honk 引擎 ---
+# --- Honk 引擎及其依赖 ---
 CONFIG_PACKAGE_honk=y
 CONFIG_PACKAGE_luci-app-honk=y
 CONFIG_PACKAGE_ip-full=y
+CONFIG_PACKAGE_ca-bundle=y
+CONFIG_PACKAGE_kmod-nft-queue=y
+CONFIG_PACKAGE_kmod-sched-core=y
+CONFIG_PACKAGE_kmod-sched-bpf=y
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-nft-tproxy=y
 
+# --- 内核 eBPF / BTF 基础能力支持 ---
+CONFIG_KERNEL_BPF_EVENTS=y
+CONFIG_BPF_TOOLCHAIN=y
+CONFIG_KERNEL_DEBUG_INFO=y
+CONFIG_KERNEL_DEBUG_INFO_BTF=y
+
+# --- 其他常规功能与依赖 ---
 CONFIG_PACKAGE_luci-app-filemanager=y
 CONFIG_PACKAGE_pbr=y
 CONFIG_PACKAGE_luci-app-pbr=y
@@ -196,20 +217,6 @@ CONFIG_PACKAGE_etherwake=y
 CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
-CONFIG_PACKAGE_kmod-nft-queue=y
-
-# --- Daede (外挂版) ---
-CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-CONFIG_PACKAGE_luci-app-daede=y
-CONFIG_PACKAGE_ca-bundle=y
-CONFIG_PACKAGE_kmod-nft-tproxy=y
-CONFIG_PACKAGE_kmod-sched-bpf=y
-CONFIG_PACKAGE_kmod-sched-core=y
-CONFIG_PACKAGE_kmod-veth=y
-CONFIG_KERNEL_BPF_EVENTS=y
-CONFIG_BPF_TOOLCHAIN=y
-CONFIG_KERNEL_DEBUG_INFO=y
-CONFIG_KERNEL_DEBUG_INFO_BTF=y
 
 CONFIG_PACKAGE_samba4-server=y
 CONFIG_PACKAGE_samba4-libs=y

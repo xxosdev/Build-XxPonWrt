@@ -87,21 +87,29 @@ if [ "$ADD_DAEDE" = "true" ]; then
   echo "✅ 已剔除 daede 界面对 dae/daed Go核心的编译依赖"
 fi
 
+# 【提取 Homeproxy 与 Sing-box】从 VIKINGYFY/packages 综合库中精准提取源码编译
 if [ "$ADD_HOMEPROXY" = "true" ]; then
-  clone https://github.com/immortalwrt/homeproxy "$PKG_DIR/luci-app-homeproxy" master
+  echo "📥 正在拉取 VIKINGYFY 的 luci-app-homeproxy 与 sing-box 源码..."
+  git clone --depth 1 https://github.com/VIKINGYFY/packages /tmp/vikingyfy_pkg
+  rm -rf "$PKG_DIR/luci-app-homeproxy" "$PKG_DIR/sing-box"
+  cp -r /tmp/vikingyfy_pkg/luci-app-homeproxy "$PKG_DIR/"
+  cp -r /tmp/vikingyfy_pkg/sing-box "$PKG_DIR/"
+  rm -rf /tmp/vikingyfy_pkg
+  echo "✅ 已成功提取 luci-app-homeproxy 与 sing-box 源码"
 fi
 
-if [ "$ADD_PASSWALL2" = "true" ] || [ "$ADD_HOMEPROXY" = "true" ]; then
-  [ "$ADD_PASSWALL2" = "true" ] && clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
+if [ "$ADD_PASSWALL2" = "true" ]; then
+  clone https://github.com/Openwrt-Passwall/openwrt-passwall2 "$PKG_DIR/luci-app-passwall2" main
 
-  find "$PKG_DIR" -name "Makefile" | while read -r mk; do
+  # 仅针对 passwall2 进行核心依赖清洗，避免破坏 sing-box 和 homeproxy 的 Makefile
+  find "$PKG_DIR/luci-app-passwall2" -name "Makefile" | while read -r mk; do
     sed -i 's/+geoview//g' "$mk"
     sed -i 's/+PACKAGE_geoview:geoview//g' "$mk"
     sed -i -E 's/\+PACKAGE_[^:]+:[^ \t\\]+//g' "$mk"
     sed -i 's/+v2ray-plugin//g; s/+xray-core//g; s/+sing-box//g' "$mk"
     sed -i '/define Package.*\/config/,/endef/d' "$mk"
   done
-  echo "✅ 已全局强行清洗面板插件的所有 Go 核心依赖"
+  echo "✅ 已强行清洗 PassWall2 面板的所有 Go 核心依赖"
 fi
 
 if [ "$ADD_MOSDNS" = "true" ]; then
@@ -142,7 +150,7 @@ if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; th
   exit 1
 fi
 
-# 物理删除官方源中会冲突报错的核心源码包
+# 物理删除官方源中会冲突报错的核心源码包（确保使用 custom 下编译的 sing-box 与 honk）
 rm -rf feeds/packages/net/geoview
 rm -rf feeds/packages/net/v2ray-plugin
 rm -rf feeds/packages/net/xray-core
@@ -166,9 +174,9 @@ rm -rf feeds/luci/applications/luci-app-passwall
 rm -rf package/feeds/luci/luci-app-homeproxy
 rm -rf package/feeds/luci/luci-app-passwall
 
-# 全局扫描清洗 Go 核心打包依赖（注意这里不能屏蔽 honk，因为 honk 可以正常编译打包）
+# 全局扫描清洗 Go 核心打包依赖（放行 honk 与 sing-box，因为它们作为源码正常编译打包）
 echo "🔍 正在进行全局依赖强行清洗..."
-find package/ feeds/ -name "Makefile" | xargs sed -i 's/+sing-box//g; s/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null
+find package/ feeds/ -name "Makefile" | xargs sed -i 's/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true

@@ -24,8 +24,6 @@ if [ -f "$CFG" ]; then
   sed -i "s/option timezone.*/option timezone 'CST-8'/" "$CFG"
   sed -i "s/option zonename.*/option zonename 'Asia\/Shanghai'/" "$CFG"
   echo "✅ config_generate 默认时区 -> CST-8 / Asia/Shanghai"
-else
-  echo "::warning::未找到 $CFG，跳过默认值修改"
 fi
 
 # ---------------------------------------------------------
@@ -71,13 +69,13 @@ done
 echo "✅ 温度显示偏移已修正 (-10°C)"
 
 # ---------------------------------------------------------
-# 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box)
+# 5. 下载所需的基础组件 (不下载 sing-box、不下载 daed，全部走源码)
 # ---------------------------------------------------------
-echo "📥 正在拉取官方预编译二进制文件与数据..."
+echo "📥 正在拉取周边依赖数据文件..."
 mkdir -p files/usr/bin
 mkdir -p files/usr/share/v2ray
 
-# 5.1 拉取 Xray-core 及 Geo 数据
+# 仅拉取 Xray-core 及 Geo 数据 (纯净数据文件无冲突风险)
 XRAY_URL=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases | grep "browser_download_url.*Xray-linux-arm64-v8a.zip" | head -n 1 | cut -d '"' -f 4)
 if [ -n "$XRAY_URL" ]; then
   wget -qO /tmp/xray.zip "$XRAY_URL"
@@ -88,23 +86,11 @@ if [ -n "$XRAY_URL" ]; then
   echo "✅ 最新版 Xray-core 及 Geo 数据已就绪"
 fi
 
-# 5.2 拉取 geoview
 GEOVIEW_URL=$(curl -s https://api.github.com/repos/snowie2000/geoview/releases | grep "browser_download_url.*geoview-linux-arm64" | head -n 1 | cut -d '"' -f 4)
 if [ -n "$GEOVIEW_URL" ]; then
   wget -qO files/usr/bin/geoview "$GEOVIEW_URL"
   chmod +x files/usr/bin/geoview
   echo "✅ geoview 已就绪"
-fi
-
-# 5.3 拉取官方 Sing-box 核心二进制
-SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases | grep "browser_download_url.*linux-arm64.tar.gz" | head -n 1 | cut -d '"' -f 4)
-if [ -n "$SINGBOX_URL" ]; then
-  wget -qO /tmp/singbox.tar.gz "$SINGBOX_URL"
-  tar -xzf /tmp/singbox.tar.gz -C /tmp/
-  mv /tmp/sing-box-*/sing-box files/usr/bin/
-  chmod +x files/usr/bin/sing-box
-  rm -rf /tmp/singbox* /tmp/sing-box*
-  echo "✅ 最新版 Sing-box 核心二进制已就绪"
 fi
 
 # ---------------------------------------------------------
@@ -118,62 +104,16 @@ for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
 done
 
 # ---------------------------------------------------------
-# 7. sing-box 二进制包装包（0秒编译、直接打包下载好的官方二进制）
+# 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
-rm -rf package/custom/sing-box feeds/packages/net/sing-box package/feeds/packages/sing-box
-mkdir -p package/custom/sing-box
-
-cat > package/custom/sing-box/Makefile << 'EOF'
-include $(TOPDIR)/rules.mk
-
-PKG_NAME:=sing-box
-PKG_VERSION:=1.15.0
-PKG_RELEASE:=1
-
-PKG_LICENSE:=GPL-3.0-or-later
-
-include $(INCLUDE_DIR)/package.mk
-
-define Package/sing-box
-  SECTION:=net
-  CATEGORY:=Network
-  SUBMENU:=Web Servers/Proxies
-  TITLE:=The universal proxy platform (official prebuilt binary)
-  URL:=https://sing-box.sagernet.org/
-  DEPENDS:=+ca-bundle +kmod-inet-diag +kmod-netlink-diag +kmod-tun
-  PROVIDES:=sing-box
-endef
-
-define Package/sing-box/description
-  Prebuilt official sing-box binary package.
-endef
-
-define Build/Prepare
-endef
-
-define Build/Configure
-endef
-
-define Build/Compile
-endef
-
-define Package/sing-box/install
-	$(INSTALL_DIR) $(1)/usr/bin
-	[ -f $(TOPDIR)/files/usr/bin/sing-box ] && $(INSTALL_BIN) $(TOPDIR)/files/usr/bin/sing-box $(1)/usr/bin/sing-box || true
-endef
-
-$(eval $(call BuildPackage,sing-box))
-EOF
-
-# 清理元数据缓存，确保索引干净
-rm -rf tmp/.packageinfo tmp/.targetinfo
+# [关键保障] 清理可能受污染的 protobuf Go 模块缓存，为 sing-box 纯净源码编译护航
+rm -rf dl/go-mod-cache/google.golang.org/protobuf* 2>/dev/null || true
 
 if [ -f .config ]; then
-  # 清理旧冲突项
+  # 彻底清除关于 dae/daed 遗留配置的干扰
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
-  sed -i '/CONFIG_PACKAGE_sing-box/d' .config
   sed -i '/CONFIG_PACKAGE_dae/d' .config
   sed -i '/CONFIG_PACKAGE_daed/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-daede/d' .config
@@ -190,7 +130,7 @@ CONFIG_PACKAGE_luci-app-lucky=y
 CONFIG_PACKAGE_luci-app-homeproxy=y
 CONFIG_PACKAGE_sing-box=y
 
-# --- Honk 引擎及其依赖 ---
+# --- Honk 引擎及其依赖 (全面替代 daed) ---
 CONFIG_PACKAGE_honk=y
 CONFIG_PACKAGE_luci-app-honk=y
 CONFIG_PACKAGE_ip-full=y

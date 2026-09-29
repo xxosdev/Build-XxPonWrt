@@ -156,6 +156,9 @@ done
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
+# 移除 homeproxy 对 sing-box 编译包的强依赖（扩大搜索范围到 package 与 feeds）
+find package/ feeds/ -name Makefile -path "*/luci-app-homeproxy/*" -exec sed -i -E 's/\+sing-box[^ ]*//g' {} + 2>/dev/null || true
+
 if [ -f .config ]; then
   # 清除干扰
   sed -i '/CONFIG_PACKAGE_geoview/d' .config

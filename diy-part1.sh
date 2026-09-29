@@ -18,8 +18,8 @@ mkdir -p "$PKG_DIR"
 ADD_AIROHA_NPU=true    # luci-app-airoha-npu: Airoha SoC 状态页 (NPU/CPU等)
 
 # 科学上网与 DNS
-ADD_DAEDE=false        # 【彻底关闭】放弃 daed 避免汇编编译报错，全面改用 honk
-ADD_HONK=true          # luci-app-honk & honk: dae的下一代演进版 (已证实可成功编译)
+ADD_DAEDE=false        # 【严格关闭】彻底杜绝 dae/daed 触发 cpuid 编译错误
+ADD_HONK=true          # luci-app-honk & honk: dae的下一代演进版
 ADD_PASSWALL2=true     # luci-app-passwall2: 科学上网
 ADD_HOMEPROXY=true     # luci-app-homeproxy: 新增 Homeproxy 面板
 ADD_MOSDNS=false       # luci-app-mosdns: DNS 防泄漏 + v2ray-geodata
@@ -68,14 +68,17 @@ if [ "$ADD_AIROHA_NPU" = "true" ]; then
   clone https://github.com/luanmuc/luci-app-airoha-npu "$PKG_DIR/luci-app-airoha-npu" main
 fi
 
-# 【提取 Honk】从 small 综合库中单独精准提取 honk 源码
+# 【提取 Honk 并修复 vmlinux-btf 依赖报错】
 if [ "$ADD_HONK" = "true" ]; then
   echo "📥 正在拉取 honk 与 luci-app-honk..."
   git clone --depth 1 https://github.com/kenzok8/small /tmp/small_pkg
   cp -r /tmp/small_pkg/honk "$PKG_DIR/"
   cp -r /tmp/small_pkg/luci-app-honk "$PKG_DIR/"
   rm -rf /tmp/small_pkg
-  echo "✅ 已成功提取 honk 与 luci-app-honk"
+  
+  # 【绝杀 vmlinux-btf 报错】强制剔除 honk 对 vmlinux-btf 的依赖（系统已开启内核BTF，无需此包）
+  sed -i 's/+HONK_USE_VMLINUX_BTF:vmlinux-btf//g' "$PKG_DIR/honk/Makefile"
+  echo "✅ 已成功提取 honk 并清理冗余 BTF 依赖"
 fi
 
 # 【提取 Homeproxy 与配套的 sing-box 源码】
@@ -89,14 +92,20 @@ if [ "$ADD_HOMEPROXY" = "true" ]; then
     mv "$PKG_DIR/temp-packages/sing-box" "$PKG_DIR/sing-box"
     rm -rf "$PKG_DIR/temp-packages"
 
-    # [纯源码编译核心修复] 彻底剔除 sing-box 中导致 Go Protobuf 报错的 with_tailscale
+    # [源码编译核心修复 1] 彻底剔除 sing-box 中导致 Go Protobuf 报错的 with_tailscale
     if [ -f "$PKG_DIR/sing-box/Makefile" ]; then
         sed -i 's/,with_tailscale//g' "$PKG_DIR/sing-box/Makefile"
         sed -i 's/with_tailscale,//g' "$PKG_DIR/sing-box/Makefile"
-        sed -i 's/with_tailscale//g' "$PKG_DIR/sing-box/Makefile"
-        echo "✅ 已剔除 sing-box 中冲突的 with_tailscale 编译标签，确保顺利源码编译"
+        echo "✅ 已剔除 sing-box 中冲突的 with_tailscale 编译标签，确保纯正源码顺利编译"
     fi
-    echo "✅ 已拉取 VIKINGYFY 的 luci-app-homeproxy 与配套 sing-box 源码"
+
+    # [源码编译核心修复 2] 强行剥离 homeproxy 对 sing-box 版本的强制检测，防止 apk 报错
+    find "$PKG_DIR/luci-app-homeproxy" -type f -name "Makefile" | while read -r mk; do
+        sed -i -E 's/\+sing-box[>=<0-9\._-]*//g' "$mk"
+        sed -i -E 's/\+sing-box[^ \t\r\n\)]*//g' "$mk"
+        sed -i 's/+sing-box//g' "$mk"
+    done
+    echo "✅ 已解除 homeproxy 对 sing-box 的强制版本校验"
 fi
 
 if [ "$ADD_PASSWALL2" = "true" ]; then
@@ -143,24 +152,28 @@ if [ "$ADD_THEME_AURORA" = "true" ]; then
 fi
 
 # ---------------------------------------------------------
-# 5. 校验与全局依赖死刑清洗
+# 5. 校验与全局物理清除
 # ---------------------------------------------------------
 if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; then
   echo "❌ ::error::luci-app-airoha-npu 源码未拉取成功，将导致配置被剔除！"
   exit 1
 fi
 
-# 物理删除系统中一切可能引发冲突和错误的老旧源码
+# 物理删除一切包含 dae / daed 的旧代码，彻底掐断 cpuid 汇编报错的源头
 rm -rf "$PKG_DIR/openwrt-daede"
-rm -rf feeds/packages/net/geoview feeds/packages/net/v2ray-plugin feeds/packages/net/xray-core feeds/packages/net/sing-box feeds/packages/net/dae feeds/packages/net/daed feeds/packages/net/honk
-rm -rf package/feeds/packages/geoview package/feeds/packages/v2ray-plugin package/feeds/packages/xray-core package/feeds/packages/sing-box package/feeds/packages/dae package/feeds/packages/daed package/feeds/packages/honk
+rm -rf feeds/packages/net/dae feeds/packages/net/daed feeds/packages/net/vmlinux-btf
+rm -rf package/feeds/packages/dae package/feeds/packages/daed package/feeds/packages/vmlinux-btf
+
+# 删除可能冲突的官方核心源码包（保留我们已下载的纯净版）
+rm -rf feeds/packages/net/geoview feeds/packages/net/v2ray-plugin feeds/packages/net/xray-core feeds/packages/net/sing-box feeds/packages/net/honk
+rm -rf package/feeds/packages/geoview package/feeds/packages/v2ray-plugin package/feeds/packages/xray-core package/feeds/packages/sing-box package/feeds/packages/honk
 
 # 删除官方自带的重名面板
 rm -rf feeds/luci/applications/luci-app-homeproxy feeds/luci/applications/luci-app-passwall
 rm -rf package/feeds/luci/luci-app-homeproxy package/feeds/luci/luci-app-passwall
 
-# 全局扫描清洗 Go 核心打包依赖（完全保留 sing-box 和 honk，因为要源码编译）
-echo "🔍 正在进行全局依赖强行清洗..."
+# 全局扫描清洗老旧 Go 核心强行依赖
+echo "🔍 正在进行全局依赖清洗..."
 find package/ feeds/ -name "Makefile" 2>/dev/null | xargs sed -i 's/+xray-core//g; s/+v2ray-plugin//g; s/+geoview//g; s/+dae//g; s/+daed//g; s/+PACKAGE_geoview:geoview//g' 2>/dev/null || true
 
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then

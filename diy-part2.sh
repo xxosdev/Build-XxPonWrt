@@ -54,7 +54,7 @@ chmod +x files/etc/uci-defaults/99-disable-lucky
 echo "✅ uci-defaults 初始化脚本已写入"
 
 # ---------------------------------------------------------
-# 4. 补上亚洲时区数据库包 & 温度下调 10°C 修复
+# 4. 补上亚洲时区数据库包 & 完美保留温度 -10°C 修复
 # ---------------------------------------------------------
 if [ -f .config ]; then
   sed -i '/^CONFIG_PACKAGE_zoneinfo-asia=/d; /^# CONFIG_PACKAGE_zoneinfo-asia is not set/d' .config
@@ -69,13 +69,13 @@ done
 echo "✅ 温度显示偏移已修正 (-10°C)"
 
 # ---------------------------------------------------------
-# 5. 下载所需的基础组件 (不下载 sing-box、不下载 daed，全部走源码)
+# 5. 下载基础辅助组件 (绝对不下载 sing-box，坚决不下载 dae/daed)
 # ---------------------------------------------------------
-echo "📥 正在拉取周边依赖数据文件..."
+echo "📥 正在拉取基础数据包..."
 mkdir -p files/usr/bin
 mkdir -p files/usr/share/v2ray
 
-# 仅拉取 Xray-core 及 Geo 数据 (纯净数据文件无冲突风险)
+# 仅拉取 Xray-core 及 Geo 数据 (纯净数据文件无编译冲突)
 XRAY_URL=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases | grep "browser_download_url.*Xray-linux-arm64-v8a.zip" | head -n 1 | cut -d '"' -f 4)
 if [ -n "$XRAY_URL" ]; then
   wget -qO /tmp/xray.zip "$XRAY_URL"
@@ -106,17 +106,20 @@ done
 # ---------------------------------------------------------
 # 7. 向 .config 强制注入公共的软件包配置
 # ---------------------------------------------------------
-# [关键保障] 清理可能受污染的 protobuf Go 模块缓存，为 sing-box 纯净源码编译护航
+# [强制保护措施] 清理已被污染的 protobuf 缓存，为纯正源码编译 sing-box 扫清障碍
 rm -rf dl/go-mod-cache/google.golang.org/protobuf* 2>/dev/null || true
+rm -rf tmp/.packageinfo tmp/.targetinfo
 
 if [ -f .config ]; then
-  # 彻底清除关于 dae/daed 遗留配置的干扰
+  # 彻底清除关于 dae / daed / vmlinux-btf 遗留配置的干扰项
   sed -i '/CONFIG_PACKAGE_geoview/d' .config
   sed -i '/CONFIG_PACKAGE_v2ray-plugin/d' .config
   sed -i '/CONFIG_PACKAGE_xray-core/d' .config
-  sed -i '/CONFIG_PACKAGE_dae/d' .config
-  sed -i '/CONFIG_PACKAGE_daed/d' .config
+  sed -i '/CONFIG_PACKAGE_dae=/d' .config
+  sed -i '/CONFIG_PACKAGE_daed=/d' .config
   sed -i '/CONFIG_PACKAGE_luci-app-daede/d' .config
+  sed -i '/CONFIG_PACKAGE_vmlinux-btf/d' .config
+  sed -i '/CONFIG_PACKAGE_kmod-xdp-sockets-diag/d' .config
 
   cat >> .config <<EOF
 
@@ -130,7 +133,7 @@ CONFIG_PACKAGE_luci-app-lucky=y
 CONFIG_PACKAGE_luci-app-homeproxy=y
 CONFIG_PACKAGE_sing-box=y
 
-# --- Honk 引擎及其依赖 (全面替代 daed) ---
+# --- Honk 引擎及其依赖 (全面替代 daed，且无编译报错) ---
 CONFIG_PACKAGE_honk=y
 CONFIG_PACKAGE_luci-app-honk=y
 CONFIG_PACKAGE_ip-full=y

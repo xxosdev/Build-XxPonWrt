@@ -194,7 +194,14 @@ if [ -f .config ]; then
 # 强制注入的公共插件配置
 # ========================
 
+# --- EasyTier 组网 (界面 + 核心本体) ---
 CONFIG_PACKAGE_luci-app-easytier=y
+CONFIG_PACKAGE_easytier=y
+
+# --- DDNS-GO 动态域名解析 (界面 + 核心本体) ---
+CONFIG_PACKAGE_luci-app-ddns-go=y
+CONFIG_PACKAGE_ddns-go=y
+
 CONFIG_PACKAGE_luci-theme-aurora=y
 CONFIG_PACKAGE_luci-app-lucky=y
 CONFIG_PACKAGE_luci-app-homeproxy=y

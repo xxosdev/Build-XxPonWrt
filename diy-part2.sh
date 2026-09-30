@@ -68,7 +68,23 @@ find package/ feeds/ files/ -type f \( -name "cpuinfo" -o -name "tempinfo" \) 2>
   sed -i 's|printf("%.1f°C", [$]0 / 1000)|printf("%.1f°C", ($0 / 1000) - 10)|g' "$f"
   sed -i 's|printf("%.1f", v)|printf("%.1f", v - 10)|g' "$f"
 done
+# airoha SoC 状态 RPC 后端脚本 (luci.airoha_npu)
+find package/ feeds/ files/ -type f -name "luci.airoha_npu" 2>/dev/null | while read -r f; do
+  sed -i 's|cpu_temp=$((temp_raw / 1000))|cpu_temp=$(( (temp_raw / 1000) - 10 ))|g' "$f"
+done
 echo "✅ 温度显示偏移 (-10°C)"
+
+# ---------------------------------------------------------
+# 4.1 自定义概览页面版本显示与超链接 (LuCI Master 架构)
+# ---------------------------------------------------------
+SYS_JS=$(find feeds/ package/ -type f -name "10_system.js" 2>/dev/null | grep -E "status/include/10_system\.js" | head -n 1)
+if [ -n "$SYS_JS" ] && [ -f "$SYS_JS" ]; then
+  BUILD_DATE=$(date +"%Y.%m.%d")
+  sed -i "s|.*_('Firmware Version').*|_('Firmware Version'), E('span', {}, [(L.isObject(boardinfo.release) ? boardinfo.release.description + ' / ' : '') + (luciversion \|\| '') + ' Build ${BUILD_DATE} by ', E('a', { 'href': '###', 'target': '_blank' }, 'Xx')]),|g" "$SYS_JS"
+  echo "✅ 已向 $SYS_JS 注入编译日期与自定义超链接"
+else
+  echo "::warning::未找到 10_system.js，跳过版本信息修改"
+fi
 
 # ---------------------------------------------------------
 # 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box, dae, daed)

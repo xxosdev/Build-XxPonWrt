@@ -5,7 +5,7 @@ name: Build PonWrt (Airoha AN758x PON)
 #   - 源码: https://github.com/pbs05/ponwrt (默认分支 master)
 #   - 支持 AN7581 / AN7583 全机型选择与品牌矩阵并发构建
 #   - 磁盘空间释放 + 工具链双通道缓存(actions/cache + Release 备份)
-#   - diy-part1 拉插件 / diy-part2 改中国时区
+#   - diy-part1 拉插件 / diy-part2 改中国时区-
 # =========================================================
 
 env:

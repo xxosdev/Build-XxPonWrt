@@ -68,7 +68,7 @@ clone() {
 # 4. 执行克隆任务
 # ---------------------------------------------------------
 if [ "$ADD_AIROHA_NPU" = "true" ]; then
-  clone https://github.com/luanmuc/luci-app-airoha-npu "$PKG_DIR/luci-app-airoha-npu" main
+  clone https://github.com/xxosdev/luci-app-airoha-npu "$PKG_DIR/luci-app-airoha-npu" main
 fi
 
 # 【提取 Honk】从 small 综合库中单独精准提取 honk 源码

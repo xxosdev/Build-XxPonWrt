@@ -382,7 +382,9 @@ jobs:
           sleep 5
         done
 
-        find dl -size -1024c -type f -exec rm -f {} \; 2>/dev/null
+        #find dl -size -1024c -type f -exec rm -f {} \; 2>/dev/null
+        # （加上 -maxdepth 1）：禁止其遍历子目录
+        find dl -maxdepth 1 -size -1024c -type f -exec rm -f {} \; 2>/dev/null
 
         echo "dl 目录共 $(ls -1 dl 2>/dev/null | wc -l) 个文件"
         ls -lh dl 2>/dev/null | head -20
@@ -552,7 +554,9 @@ jobs:
           if make download -j8; then break; fi
           sleep 5
         done
-        find dl -size -1024c -type f -exec rm -f {} \; 2>/dev/null
+        #find dl -size -1024c -type f -exec rm -f {} \; 2>/dev/null
+        # （加上 -maxdepth 1）：禁止其遍历子目录
+        find dl -maxdepth 1 -size -1024c -type f -exec rm -f {} \; 2>/dev/null
         echo "dl 目录共 $(ls -1 dl 2>/dev/null | wc -l) 个文件"
 
     # =========================================================

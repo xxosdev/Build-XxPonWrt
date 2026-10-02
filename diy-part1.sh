@@ -31,6 +31,7 @@ ADD_SMARTDNS=false     # luci-app-smartdns: DNS 加速
 # 网络与组网
 ADD_LUCKY=true         # luci-app-lucky: 大吉 (DDNS/端口转发/Socat)
 ADD_DDNS_GO=true       # luci-app-ddns-go: DDNS-GO 动态域名解析
+ADD_LUCI_MESH=true     # luci-app-mesh: 802.11s Mesh 组网管理界面
 ADD_TAILSCALE=false    # luci-app-tailscale: 虚拟局域网
 ADD_EASYTIER=true      # luci-app-easytier: EasyTier 组网 (含 easytier 核心)
 
@@ -127,6 +128,11 @@ fi
 
 if [ "$ADD_DDNS_GO" = "true" ]; then
   clone https://github.com/sirpdboy/luci-app-ddns-go "$PKG_DIR/luci-app-ddns-go" main
+fi
+
+# 【拉取 luci-app-mesh】802.11s Mesh 组网管理界面
+if [ "$ADD_LUCI_MESH" = "true" ]; then
+  clone https://github.com/xxosdev/luci-app-mesh "$PKG_DIR/luci-app-mesh" main
 fi
 
 if [ "$ADD_TAILSCALE" = "true" ]; then

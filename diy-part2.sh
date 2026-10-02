@@ -203,11 +203,16 @@ if [ -f .config ]; then
 # 强制注入的公共插件配置
 # ========================
 
-# --- 无线 Mesh 认证与 802.11s / BATMAN-Advanced 组网 ---
-CONFIG_PACKAGE_wpad-mesh-openssl=y
-# CONFIG_PACKAGE_wpad-openssl is not set
-CONFIG_PACKAGE_kmod-batman-adv=y
-CONFIG_PACKAGE_batctl=y
+# --- 802.11s Mesh 组网管理界面 (luci-app-mesh) 及漫游协同组件 ---
+# CONFIG_PACKAGE_luci-app-mesh=y
+# CONFIG_PACKAGE_luci-proto-batman-adv=y
+# CONFIG_PACKAGE_dawn=y
+# CONFIG_PACKAGE_umdns=y
+
+# --- 无线 Mesh 认证与 802.11s / BATMAN-Advanced 组网核心 ---
+# CONFIG_PACKAGE_wpad-mesh-openssl=y
+# CONFIG_PACKAGE_kmod-batman-adv=y
+# CONFIG_PACKAGE_batctl=y
 
 # --- EasyTier 组网 (界面 + 核心本体) ---
 CONFIG_PACKAGE_luci-app-easytier=y

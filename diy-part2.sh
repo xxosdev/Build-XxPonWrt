@@ -87,6 +87,12 @@ else
 fi
 
 # ---------------------------------------------------------
+# 4.2 将 Airoha 平台固件定义中的 wpad-openssl 替换为 wpad-mesh-openssl
+# ---------------------------------------------------------
+find target/linux/airoha/image/ -type f -name "*.mk" -exec sed -i 's/wpad-openssl/wpad-mesh-openssl/g' {} + 2>/dev/null || true
+echo "✅ 已将 Airoha 目标设备底层 DEVICE_PACKAGES 中的 wpad-openssl 替换为 wpad-mesh-openssl"
+
+# ---------------------------------------------------------
 # 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box, dae, daed)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."
@@ -188,7 +194,8 @@ if [ -f .config ]; then
   sed -i '/CONFIG_PACKAGE_dae=/d' .config
   sed -i '/CONFIG_PACKAGE_daed=/d' .config
   # 彻底清除基座与机型配置中遗留的普通 wpad，防止与 mesh 版互斥冲突
-  sed -i '/CONFIG_PACKAGE_wpad/d' .config
+  sed -i '/CONFIG_PACKAGE_wpad-openssl/d' .config
+  sed -i '/CONFIG_PACKAGE_wpad-mesh-openssl/d' .config
 
   cat >> .config <<EOF
 
@@ -198,6 +205,7 @@ if [ -f .config ]; then
 
 # --- 无线 Mesh 认证与 802.11s / BATMAN-Advanced 组网 ---
 CONFIG_PACKAGE_wpad-mesh-openssl=y
+# CONFIG_PACKAGE_wpad-openssl is not set
 CONFIG_PACKAGE_kmod-batman-adv=y
 CONFIG_PACKAGE_batctl=y
 

@@ -187,12 +187,19 @@ if [ -f .config ]; then
   # sed -i '/CONFIG_PACKAGE_sing-box/d' .config  # 已转为源码编译，不再删除
   sed -i '/CONFIG_PACKAGE_dae=/d' .config
   sed -i '/CONFIG_PACKAGE_daed=/d' .config
+  # 彻底清除基座与机型配置中遗留的普通 wpad，防止与 mesh 版互斥冲突
+  sed -i '/CONFIG_PACKAGE_wpad/d' .config
 
   cat >> .config <<EOF
 
 # ========================
 # 强制注入的公共插件配置
 # ========================
+
+# --- 无线 Mesh 认证与 802.11s / BATMAN-Advanced 组网 ---
+CONFIG_PACKAGE_wpad-mesh-openssl=y
+CONFIG_PACKAGE_kmod-batman-adv=y
+CONFIG_PACKAGE_batctl=y
 
 # --- EasyTier 组网 (界面 + 核心本体) ---
 CONFIG_PACKAGE_luci-app-easytier=y

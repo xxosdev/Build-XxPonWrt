@@ -11,7 +11,7 @@ name: Build PonWrt (Airoha AN758x PON)
 env:
   # 编译根目录：必须静态定义（供 actions/cache 的 path 使用）
   BUILD_ROOT: /workdir
-  REPO_URL: https://github.com/pbs05/ponwrt
+  REPO_URL: https://github.com/xxosdev/ponwrt
   FEEDS_CONF: ''                        # 留空=使用源码自带 feeds.conf.default(含 pon_drivers/pon_userspace)
   DIY_P1_SH: diy-part1.sh       # 拉取可选插件
   DIY_P2_SH: diy-part2.sh       # 时区改为中国

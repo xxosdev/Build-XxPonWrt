@@ -56,6 +56,7 @@ on:
           - fiberhome_hg5585f-cu
           - fiberhome_hg5585f-ct
           - fiberhome_hg5382a
+          - h3c_hm2004-du
           - gemtek_xg2010g
           - nokia_xg-040g-md-ubi
           - nokia_xg-040g-tf-ubi
@@ -68,7 +69,8 @@ on:
           - group_fiberhome (烽火全系 3 款)
           - group_nokia (诺基亚全系 4 款)
           - group_znxt (兆能全系 2 款)
-          - all (全机型 11 款并发)
+          - group_wifi (WiFi机型 4款)
+          - all (全机型 12 款并发)
       scope:
         description: '构建范围 (toolchain-only 仅预热工具链缓存)'
         required: true
@@ -122,7 +124,7 @@ jobs:
 
           case "$CHOSEN" in
             all*)
-              TARGETS='["fiberhome_hg5585f-cu","fiberhome_hg5585f-ct","fiberhome_hg5382a","gemtek_xg2010g","nokia_xg-040g-md-ubi","nokia_xg-040g-tf-ubi","unionman_ung00a","znxt_zn504xg-d","znxt_zn515xg-d","nokia_xg-040g-mf","nokia_xg-040g-mf-ubi"]'
+              TARGETS='["fiberhome_hg5585f-cu","fiberhome_hg5585f-ct","fiberhome_hg5382a","h3c_hm2004-du","gemtek_xg2010g","nokia_xg-040g-md-ubi","nokia_xg-040g-tf-ubi","unionman_ung00a","znxt_zn504xg-d","znxt_zn515xg-d","nokia_xg-040g-mf","nokia_xg-040g-mf-ubi"]'
               ;;
             group_fiberhome*)
               TARGETS='["fiberhome_hg5585f-cu","fiberhome_hg5585f-ct","fiberhome_hg5382a"]'
@@ -132,6 +134,9 @@ jobs:
               ;;
             group_znxt*)
               TARGETS='["znxt_zn504xg-d","znxt_zn515xg-d"]'
+              ;;
+            group_wifi*)
+              TARGETS='["fiberhome_hg5585f-cu","fiberhome_hg5585f-ct","znxt_zn515xg-d","h3c_hm2004-du"]'
               ;;
             *)
               TARGETS="[\"$CHOSEN\"]"

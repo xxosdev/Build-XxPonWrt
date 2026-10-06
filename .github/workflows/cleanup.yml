@@ -1,0 +1,170 @@
+name: Cleanup Repository Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      # --- Release 固件清理规则 ---
+      clean_releases:
+        description: '清理固件 Release'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      keep_firmware_per_device:
+        description: '每个机型保留最新固件版本数'
+        required: true
+        default: '3'
+        type: string
+      protect_toolchain_release:
+        description: '保护 toolchain-cache Release 备份不被删除'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+      # --- Actions Cache 清理规则 ---
+      cache_clean_mode:
+        description: 'Actions Cache 缓存清理模式'
+        required: true
+        default: 'all_except_toolchain'
+        type: choice
+        options:
+          - 'keep_all'               # 不清理任何 Cache
+          - 'all_except_toolchain'   # 仅清理 dl/ccache，保留工具链缓存
+          - 'dl_only'                # 仅清理 dl 源码包缓存
+          - 'ccache_only'            # 仅清理 ccache 编译缓存
+          - 'purge_all'              # 强制清空全部 Cache (包括工具链)
+
+      # --- 运行日志与 Artifacts 清理 ---
+      clean_runs_and_artifacts:
+        description: '清理旧构建记录与 Artifacts'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      keep_minimum_runs:
+        description: '最少保留的 Workflow 运行记录数'
+        required: true
+        default: '5'
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      # =========================================================
+      # 1. 清理 Release 固件（支持多机型独立计数与工具链保护）
+      # =========================================================
+      - name: Clean Releases & Tags
+        if: github.event.inputs.clean_releases == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_COUNT: ${{ github.event.inputs.keep_firmware_per_device }}
+          PROTECT_TOOLCHAIN: ${{ github.event.inputs.protect_toolchain_release }}
+        run: |
+          echo "=== 正在拉取 Release 列表 ==="
+          RELEASES_JSON=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft,isPrerelease,createdAt)
+
+          # 提取所有 Release Tag
+          TAGS=$(echo "$RELEASES_JSON" | jq -r '.[].tagName')
+
+          # 声明用于分类统计的临时目录
+          TMP_DIR=$(mktemp -d)
+
+          for tag in $TAGS; do
+            # 规则 1: 保护工具链备份
+            if [ "$tag" = "toolchain-cache" ] && [ "$PROTECT_TOOLCHAIN" = "true" ]; then
+              echo "🛡️ 保留关键工具链 Release: $tag"
+              continue
+            fi
+
+            # 提取机型前缀 (移除尾部时间戳: 如 ponwrt-an7581-fiberhome_hg5585f-cu-master-20261006-1200 -> ponwrt-an7581-fiberhome_hg5585f-cu-master)
+            DEVICE_PREFIX=$(echo "$tag" | sed -E 's/-[0-9]{8}-[0-9]{4}$//')
+            echo "$tag" >> "$TMP_DIR/$DEVICE_PREFIX.txt"
+          done
+
+          echo "=== 开始按机型分组执行清理 (每款机型保留最新 $KEEP_COUNT 个) ==="
+          for group_file in "$TMP_DIR"/*; do
+            [ -e "$group_file" ] || continue
+            group_name=$(basename "$group_file" .txt)
+            total_in_group=$(wc -l < "$group_file")
+
+            echo "机型组: $group_name (当前共有 $total_in_group 个发布版本)"
+
+            # tail 选出超出保留数量的老旧 tag 进行删除
+            tail -n +$((KEEP_COUNT + 1)) "$group_file" | while read -r del_tag; do
+              [ -z "$del_tag" ] && continue
+              echo "🗑️ 正在删除过期 Release: $del_tag"
+              gh release delete "$del_tag" --repo "$GITHUB_REPOSITORY" -y --cleanup-tag 2>/dev/null || true
+            done
+          done
+          rm -rf "$TMP_DIR"
+
+      # =========================================================
+      # 2. 清理 Actions Cache
+      # =========================================================
+      - name: Clean Actions Cache
+        if: github.event.inputs.cache_clean_mode != 'keep_all'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODE: ${{ github.event.inputs.cache_clean_mode }}
+        run: |
+          echo "=== 获取 Actions Cache 列表 (模式: $MODE) ==="
+          CACHES=$(gh api "/repos/$GITHUB_REPOSITORY/actions/caches?per_page=100" --jq '.actions_caches[] | "\(.id) \(.key)"')
+
+          if [ -z "$CACHES" ]; then
+            echo "无可用 Cache 需要处理"
+            exit 0
+          fi
+
+          echo "$CACHES" | while read -r cache_id cache_key; do
+            DELETE=false
+
+            case "$MODE" in
+              purge_all)
+                DELETE=true
+                ;;
+              all_except_toolchain)
+                if [[ ! "$cache_key" =~ ^ponwrt-toolchain- ]]; then
+                  DELETE=true
+                else
+                  echo "🛡️ 保留工具链缓存: $cache_key"
+                fi
+                ;;
+              dl_only)
+                [[ "$cache_key" =~ ^ponwrt-dl- ]] && DELETE=true
+                ;;
+              ccache_only)
+                [[ "$cache_key" =~ ^ponwrt-ccache- ]] && DELETE=true
+                ;;
+            esac
+
+            if [ "$DELETE" = "true" ]; then
+              echo "🗑️ 正在清理 Cache [$cache_id]: $cache_key"
+              gh api -X DELETE "/repos/$GITHUB_REPOSITORY/actions/caches/$cache_id" 2>/dev/null || true
+            fi
+          done
+
+      # =========================================================
+      # 3. 清理历史 Workflow 运行与 Artifacts 制品
+      # =========================================================
+      - name: Clean Workflow Runs & Artifacts
+        if: github.event.inputs.clean_runs_and_artifacts == 'true'
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          retain_days: 1
+          keep_minimum_runs: ${{ github.event.inputs.keep_minimum_runs }}

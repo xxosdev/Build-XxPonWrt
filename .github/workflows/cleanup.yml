@@ -3,6 +3,41 @@ name: Cleanup Repository Assets
 on:
   workflow_dispatch:
     inputs:
+      # --- 目标范围过滤 ---
+      target_scope:
+        description: '清理范围（单机型/组合/全部）'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - group_wifi
+          - group_fiberhome
+          - group_nokia
+          - group_znxt
+          - h3c_hm2004-du
+          - fiberhome_hg5585f-cu
+          - fiberhome_hg5585f-ct
+          - fiberhome_hg5382a
+          - gemtek_xg2010g
+          - nokia_xg-040g-md-ubi
+          - nokia_xg-040g-tf-ubi
+          - unionman_ung00a
+          - znxt_zn504xg-d
+          - znxt_zn515xg-d
+          - nokia_xg-040g-mf
+          - nokia_xg-040g-mf-ubi
+
+      # --- 演练模式 ---
+      dry_run:
+        description: '模拟演练 (Dry Run，仅列出待删对象不真正删除)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
       # --- Release 固件清理规则 ---
       clean_releases:
         description: '清理固件 Release'
@@ -13,12 +48,12 @@ on:
           - 'true'
           - 'false'
       keep_firmware_per_device:
-        description: '每个机型保留最新固件版本数'
+        description: '匹配机型各自保留的最新固件数'
         required: true
         default: '3'
         type: string
       protect_toolchain_release:
-        description: '保护 toolchain-cache Release 备份不被删除'
+        description: '保护 toolchain-cache Release 备份'
         required: true
         default: 'true'
         type: choice
@@ -33,15 +68,15 @@ on:
         default: 'all_except_toolchain'
         type: choice
         options:
-          - 'keep_all'               # 不清理任何 Cache
-          - 'all_except_toolchain'   # 仅清理 dl/ccache，保留工具链缓存
-          - 'dl_only'                # 仅清理 dl 源码包缓存
-          - 'ccache_only'            # 仅清理 ccache 编译缓存
-          - 'purge_all'              # 强制清空全部 Cache (包括工具链)
+          - 'keep_all'               # 跳过 Cache 清理
+          - 'all_except_toolchain'   # 仅清空 dl 与 ccache，保留工具链
+          - 'dl_only'                # 仅清理源码包缓存
+          - 'ccache_only'            # 仅清理 ccache 缓存
+          - 'purge_all'              # 彻底清空全部 Cache (含工具链)
 
-      # --- 运行日志与 Artifacts 清理 ---
+      # --- 运行日志与 Artifacts ---
       clean_runs_and_artifacts:
-        description: '清理旧构建记录与 Artifacts'
+        description: '清理旧 Workflow 运行日志与 Artifacts'
         required: true
         default: 'true'
         type: choice
@@ -51,7 +86,7 @@ on:
       keep_minimum_runs:
         description: '最少保留的 Workflow 运行记录数'
         required: true
-        default: '5'
+        default: '10'
         type: string
 
 permissions:
@@ -66,103 +101,141 @@ jobs:
         uses: actions/checkout@v4
 
       # =========================================================
-      # 1. 清理 Release 固件（支持多机型独立计数与工具链保护）
+      # 1. 过滤并清理 Release
       # =========================================================
       - name: Clean Releases & Tags
         if: github.event.inputs.clean_releases == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCOPE: ${{ github.event.inputs.target_scope }}
           KEEP_COUNT: ${{ github.event.inputs.keep_firmware_per_device }}
-          PROTECT_TOOLCHAIN: ${{ github.event.inputs.protect_toolchain_release }}
+          PROTECT_TC: ${{ github.event.inputs.protect_toolchain_release }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          echo "=== 正在拉取 Release 列表 ==="
-          RELEASES_JSON=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft,isPrerelease,createdAt)
+          echo "### 📦 Release 固件清理报告" >> "$GITHUB_STEP_SUMMARY"
+          [ "$DRY_RUN" = "true" ] && echo "> ⚠️ 当前运行在 **模拟演练模式 (Dry-Run)**，未实际删除文件。" >> "$GITHUB_STEP_SUMMARY"
 
-          # 提取所有 Release Tag
-          TAGS=$(echo "$RELEASES_JSON" | jq -r '.[].tagName')
+          # 构建机型匹配正则
+          case "$SCOPE" in
+            all) MATCH_PATTERN=".*" ;;
+            group_wifi) MATCH_PATTERN="(fiberhome_hg5585f-cu|fiberhome_hg5585f-ct|znxt_zn515xg-d|h3c_hm2004-du)" ;;
+            group_fiberhome) MATCH_PATTERN="(fiberhome_hg5585f-cu|fiberhome_hg5585f-ct|fiberhome_hg5382a)" ;;
+            group_nokia) MATCH_PATTERN="nokia_xg-040g-" ;;
+            group_znxt) MATCH_PATTERN="znxt_zn" ;;
+            *) MATCH_PATTERN="${SCOPE}" ;;
+          esac
 
-          # 声明用于分类统计的临时目录
+          echo "匹配目标模式: $MATCH_PATTERN"
+
+          # 获取所有 Release Tag (按发布时间倒序)
+          TAGS=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 2000 --json tagName -q '.[].tagName')
           TMP_DIR=$(mktemp -d)
 
           for tag in $TAGS; do
-            # 规则 1: 保护工具链备份
-            if [ "$tag" = "toolchain-cache" ] && [ "$PROTECT_TOOLCHAIN" = "true" ]; then
-              echo "🛡️ 保留关键工具链 Release: $tag"
-              continue
+            if [ "$tag" = "toolchain-cache" ]; then
+              [ "$PROTECT_TC" = "true" ] && continue
             fi
 
-            # 提取机型前缀 (移除尾部时间戳: 如 ponwrt-an7581-fiberhome_hg5585f-cu-master-20261006-1200 -> ponwrt-an7581-fiberhome_hg5585f-cu-master)
-            DEVICE_PREFIX=$(echo "$tag" | sed -E 's/-[0-9]{8}-[0-9]{4}$//')
-            echo "$tag" >> "$TMP_DIR/$DEVICE_PREFIX.txt"
+            # 仅处理符合选定范围的机型
+            if echo "$tag" \vert{} grep -Eq "$MATCH_PATTERN"; then
+              # 归一化键名：去除结尾时间戳，保留机型与分支标识
+              # 如 ponwrt-an7581-h3c_hm2004-du-master-20261006-1200 -> ponwrt-an7581-h3c_hm2004-du-master
+              PREFIX=$(echo "$tag" \vert{} sed -E 's/-[0-9]{8}-[0-9]{4}$//')
+              echo "$tag" >> "$TMP_DIR/$PREFIX.txt"
+            fi
           done
 
-          echo "=== 开始按机型分组执行清理 (每款机型保留最新 $KEEP_COUNT 个) ==="
+          echo "| 机型/分支分组 | 现有版本数 | 计划清理数 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
           for group_file in "$TMP_DIR"/*; do
             [ -e "$group_file" ] || continue
             group_name=$(basename "$group_file" .txt)
-            total_in_group=$(wc -l < "$group_file")
+            total=$(wc -l < "$group_file")
+            to_delete=$(( total > KEEP_COUNT ? total - KEEP_COUNT : 0 ))
 
-            echo "机型组: $group_name (当前共有 $total_in_group 个发布版本)"
+            echo "| \`$group_name\` | $total | $to_delete \vert{}" >> "$GITHUB_STEP_SUMMARY"
 
-            # tail 选出超出保留数量的老旧 tag 进行删除
-            tail -n +$((KEEP_COUNT + 1)) "$group_file" | while read -r del_tag; do
-              [ -z "$del_tag" ] && continue
-              echo "🗑️ 正在删除过期 Release: $del_tag"
-              gh release delete "$del_tag" --repo "$GITHUB_REPOSITORY" -y --cleanup-tag 2>/dev/null || true
-            done
+            if [ "$to_delete" -gt 0 ]; then
+              tail -n +$((KEEP_COUNT + 1)) "$group_file" | while read -r del_tag; do
+                [ -z "$del_tag" ] && continue
+                if [ "$DRY_RUN" = "true" ]; then
+                  echo "[DRY-RUN] 将删除 Release: $del_tag"
+                else
+                  echo "正在删除 Release: $del_tag"
+                  gh release delete "$del_tag" --repo "$GITHUB_REPOSITORY" -y --cleanup-tag 2>/dev/null || true
+                fi
+              done
+            fi
           done
           rm -rf "$TMP_DIR"
 
       # =========================================================
-      # 2. 清理 Actions Cache
+      # 2. 清理 Actions Cache (原生 CLI + 大容量安全分页)
       # =========================================================
-      - name: Clean Actions Cache
+      - name: Clean Actions Caches
         if: github.event.inputs.cache_clean_mode != 'keep_all'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODE: ${{ github.event.inputs.cache_clean_mode }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          echo "=== 获取 Actions Cache 列表 (模式: $MODE) ==="
-          CACHES=$(gh api "/repos/$GITHUB_REPOSITORY/actions/caches?per_page=100" --jq '.actions_caches[] | "\(.id) \(.key)"')
+          echo "### ⚡ Actions Cache 清理报告 (模式: $MODE)" >> "$GITHUB_STEP_SUMMARY"
+
+          # 使用原生 gh cache list，提取 id 与 key
+          CACHES=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 --json id,key -q '.[] | "\(.id) \(.key)"')
 
           if [ -z "$CACHES" ]; then
-            echo "无可用 Cache 需要处理"
+            echo "无缓存需要处理。" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          echo "$CACHES" | while read -r cache_id cache_key; do
-            DELETE=false
+          DELETED_COUNT=0
+          SKIPPED_COUNT=0
+
+          while read -r cache_id cache_key; do
+            [ -z "$cache_id" ] && continue
+            SHOULD_DEL=false
 
             case "$MODE" in
               purge_all)
-                DELETE=true
+                SHOULD_DEL=true
                 ;;
               all_except_toolchain)
-                if [[ ! "$cache_key" =~ ^ponwrt-toolchain- ]]; then
-                  DELETE=true
+                if [[ "$cache_key" =~ ^ponwrt-toolchain- ]]; then
+                  SHOULD_DEL=false
                 else
-                  echo "🛡️ 保留工具链缓存: $cache_key"
+                  SHOULD_DEL=true
                 fi
                 ;;
               dl_only)
-                [[ "$cache_key" =~ ^ponwrt-dl- ]] && DELETE=true
+                [[ "$cache_key" =~ ^ponwrt-dl- ]] && SHOULD_DEL=true
                 ;;
               ccache_only)
-                [[ "$cache_key" =~ ^ponwrt-ccache- ]] && DELETE=true
+                [[ "$cache_key" =~ ^ponwrt-ccache- ]] && SHOULD_DEL=true
                 ;;
             esac
 
-            if [ "$DELETE" = "true" ]; then
-              echo "🗑️ 正在清理 Cache [$cache_id]: $cache_key"
-              gh api -X DELETE "/repos/$GITHUB_REPOSITORY/actions/caches/$cache_id" 2>/dev/null || true
+            if [ "$SHOULD_DEL" = "true" ]; then
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "[DRY-RUN] 将删除缓存 [$cache_id]:$cache_key"
+              else
+                echo "删除缓存 [$cache_id]:$cache_key"
+                gh cache delete "$cache_id" --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              fi
+              DELETED_COUNT=$((DELETED_COUNT + 1))
+            else
+              SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
             fi
-          done
+          done <<< "$CACHES"
+
+          echo "- 处理完成：已删除/标记 $DELETED_COUNT 个缓存，保留 $SKIPPED_COUNT 个缓存。" >> "$GITHUB_STEP_SUMMARY"
 
       # =========================================================
-      # 3. 清理历史 Workflow 运行与 Artifacts 制品
+      # 3. 清理构建运行记录与旧 Artifacts
       # =========================================================
       - name: Clean Workflow Runs & Artifacts
-        if: github.event.inputs.clean_runs_and_artifacts == 'true'
+        if: github.event.inputs.clean_runs_and_artifacts == 'true' && github.event.inputs.dry_run == 'false'
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

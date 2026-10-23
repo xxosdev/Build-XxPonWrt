@@ -1,11 +1,10 @@
 name: Build PonWrt (Airoha AN758x PON) - Advanced
 
 # =========================================================
-# 基于 P3TERX/Actions-OpenWrt 模板重构，适配 pbs05/ponwrt
-#   - 源码: https://github.com/pbs05/ponwrt (默认分支 master)
+# 基于 P3TERX/Actions-OpenWrt 模板重构，适配 ponwrt
 #   - 支持 AN7581 / AN7583 全机型选择与品牌矩阵并发构建
-#   - 磁盘空间释放 + 工具链双通道缓存(actions/cache + Release 备份)
-#   - diy-part1 拉插件 / diy-part2 改中国时区
+#   - 磁盘空间释放 (8G Swap) + 工具链双通道缓存 (actions/cache + Release 备份)
+#   - 唯一一次 defconfig 保护依赖图 + 按可用内存动态计算编译线程防 OOM
 #   - 支持双仓分发 (本仓 + 第三方仓库)
 #   - 支持 APK/kmod 全量打包与指定插件单文件提取
 # =========================================================
@@ -21,7 +20,7 @@ env:
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: ${{ github.event.inputs.upload_release || 'true' }}
   USE_DL_CACHE: true                    # 缓存 dl 下载目录
-  USE_CCACHE: true                      # 开启 ccache 并缓存
+  USE_CCACHE: false                     # 默认关闭，避免命中无 ccache 的工具链缓存时报错；若开启会自动走步骤 12.5 补装
   TZ: Asia/Shanghai
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -98,7 +97,7 @@ on:
           - 'false'
 
       # =======================================================
-      # 新增扩展选项
+      # 扩展选项：双仓发布与插件提取
       # =======================================================
       push_external:
         description: '【开关】发布到第三方仓库 Release'
@@ -198,627 +197,673 @@ jobs:
         profile: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-    # =========================================================
-    # 0. 解析机型 -> 自动校正 SoC，导出 device name
-    # =========================================================
-    - name: Resolve device profile
-      run: |
-        PROFILE="${{ matrix.profile }}"
+      # =========================================================
+      # 0. 解析机型 -> 自动校正 SoC，导出 device name 与周缓存号
+      # =========================================================
+      - name: Resolve device profile
+        id: resolve
+        run: |
+          PROFILE="${{ matrix.profile }}"
 
-        case "$PROFILE" in
-          nokia_xg-040g-mf*) SOC="an7583" ;;
-          *)                  SOC="an7581" ;;
-        esac
+          # 按「年+周」滚动缓存 key，防止每次运行刷爆 10GB 配额
+          echo "week=$(date +%Y%W)" >> "$GITHUB_OUTPUT"
 
-        echo "SOC=$SOC" >> "$GITHUB_ENV"
-        echo "PROFILE=$PROFILE" >> "$GITHUB_ENV"
-        echo "DEVICE_NAME=ponwrt-${SOC}-${PROFILE}" >> "$GITHUB_ENV"
-        echo "CONFIG_FILE=configs/${PROFILE}.config" >> "$GITHUB_ENV"
+          case "$PROFILE" in
+            nokia_xg-040g-mf*) SOC="an7583" ;;
+            *)                 SOC="an7581" ;;
+          esac
 
-        echo "========================================"
-        echo "当前节点机型 : $PROFILE"
-        echo "对应 SoC     : $SOC"
-        echo "源码分支     : ${REPO_BRANCH}"
-        echo "配置文件     : configs/${PROFILE}.config"
-        echo "========================================"
+          echo "SOC=$SOC" >> "$GITHUB_ENV"
+          echo "PROFILE=$PROFILE" >> "$GITHUB_ENV"
+          echo "DEVICE_NAME=ponwrt-${SOC}-${PROFILE}" >> "$GITHUB_ENV"
+          echo "CONFIG_FILE=configs/${PROFILE}.config" >> "$GITHUB_ENV"
 
-    # =========================================================
-    # 1. 释放空间 + 初始化编译环境
-    # =========================================================
-    - name: Free disk space & init build environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-          /opt/hostedtoolcache /usr/local/share/boost /usr/lib/jvm \
-          /usr/local/share/powershell /usr/share/swift 2>/dev/null || true
-        sudo docker image prune --all --force 2>/dev/null || true
-        sudo -E apt-get -yqq purge firefox snapd azure-cli google-chrome-stable 2>/dev/null || true
+          echo "========================================"
+          echo "当前节点机型 : $PROFILE"
+          echo "对应 SoC     : $SOC"
+          echo "源码分支     : ${REPO_BRANCH}"
+          echo "配置文件     : configs/${PROFILE}.config"
+          echo "========================================"
 
-        sudo swapoff -a 2>/dev/null || true
-        sudo rm -f /swapfile
-        sudo fallocate -l 4G /swapfile
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile && sudo swapon /swapfile
+      # =========================================================
+      # 1. 释放空间 + 初始化编译环境 (8G Swap + 保留 hostedtoolcache)
+      # =========================================================
+      - name: Free disk space & init build environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          # 只删 CodeQL，切勿删除整个 /opt/hostedtoolcache，避免破坏宿主环境
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/lib/jvm \
+            /usr/local/share/powershell /usr/share/swift 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          sudo -E apt-get -yqq purge firefox snapd azure-cli google-chrome-stable 2>/dev/null || true
 
-        sudo -E apt-get -yqq update
-        sudo -E apt-get -yqq install build-essential clang llvm dwarves \
-          libssl-dev libelf-dev bc flex bison python3 python3-setuptools \
-          xz-utils tar unzip zip zstd dos2unix ccache gettext \
-          rsync file wget curl git subversion 2>/dev/null || true
-        sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)' || true
+          # 配置 8G Swap (aarch64 工具链/Rust/Python PGO 编译需要)
+          sudo swapoff -a 2>/dev/null || true
+          sudo rm -f /swapfile
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile && sudo swapon /swapfile
 
-        sudo -E apt-get -yqq autoremove --purge
-        sudo -E apt-get -yqq clean
-        sudo -E timedatectl set-timezone "$TZ"
+          sudo -E apt-get -yqq update
+          sudo -E apt-get -yqq install build-essential clang llvm dwarves \
+            libssl-dev libelf-dev libffi-dev pkg-config bc flex bison \
+            python3 python3-setuptools xz-utils tar unzip zip zstd \
+            dos2unix ccache gettext rsync file wget curl git subversion 2>/dev/null || true
 
-        sudo mkdir -p /workdir
-        sudo chown "$USER":"$USER" /workdir
-
-        echo "磁盘空间:"; df -hT
-        echo "内存/Swap:"; free -h
-
-    # =========================================================
-    # 2. 克隆源码
-    # =========================================================
-    - name: Clone source code
-      run: |
-        cd "$BUILD_ROOT"
-        df -hT "$PWD"
-        git clone "$REPO_URL" -b "$REPO_BRANCH" --single-branch --depth=1 openwrt
-        ln -sf "$BUILD_ROOT/openwrt" "$GITHUB_WORKSPACE/openwrt"
-        cd openwrt && echo "commit: $(git rev-parse --short HEAD)"
-
-    # =========================================================
-    # 3. dl 下载缓存
-    # =========================================================
-    - name: Cache dl directory
-      if: env.USE_DL_CACHE == 'true'
-      uses: actions/cache@v4
-      continue-on-error: true
-      with:
-        path: /workdir/openwrt/dl
-        key: ponwrt-dl-${{ github.event.inputs.branch || 'master' }}-${{ github.run_number }}
-        restore-keys: |
-          ponwrt-dl-${{ github.event.inputs.branch || 'master' }}-
-        save-always: true
-
-    # =========================================================
-    # 4. 更新并安装 Feeds
-    # =========================================================
-    - name: Update & install feeds
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        if [ -n "${FEEDS_CONF}" ] && [ -e "$GITHUB_WORKSPACE/${FEEDS_CONF}" ]; then
-          cp "$GITHUB_WORKSPACE/${FEEDS_CONF}" feeds.conf.default
-        fi
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-
-    # =========================================================
-    # 5. diy-part1.sh —— 拉取可选插件
-    # =========================================================
-    - name: Pull optional plugins (diy-part1.sh)
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        chmod +x "$GITHUB_WORKSPACE/$DIY_P1_SH"
-        "$GITHUB_WORKSPACE/$DIY_P1_SH"
-
-    # =========================================================
-    # 6. 加载 .config —— 源码基座 defconfig 打底 + 机型精简配置追加
-    # =========================================================
-    - name: Load custom configuration
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        [ -e "$GITHUB_WORKSPACE/files" ] && cp -r "$GITHUB_WORKSPACE/files" files
-
-        if [ -f "configs/${SOC}.config" ]; then
-          cp "configs/${SOC}.config" .config
-          echo "✅ 已用源码基座 defconfig 打底: configs/${SOC}.config"
-        else
-          : > .config
-          echo "::warning::源码中无 configs/${SOC}.config，仅用精简配置"
-        fi
-
-        if [ -e "$GITHUB_WORKSPACE/${CONFIG_FILE}" ]; then
-          cat "$GITHUB_WORKSPACE/${CONFIG_FILE}" >> .config
-          echo "✅ 已追加机型配置: ${CONFIG_FILE}"
-        elif [ -e "$GITHUB_WORKSPACE/configs/${SOC}.config" ]; then
-          cat "$GITHUB_WORKSPACE/configs/${SOC}.config" >> .config
-          echo "✅ 已追加 SoC 通用配置"
-        else
-          echo "::error::找不到机型配置 ${CONFIG_FILE}"
-          exit 1
-        fi
-
-    # =========================================================
-    # 7. 按机型裁剪: 只保留当前矩阵的目标机型
-    # =========================================================
-    - name: Apply device profile
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        sed -i '/CONFIG_TARGET_DEVICE_/d; /^CONFIG_TARGET_MULTI_PROFILE=/d' .config
-        {
-          echo "CONFIG_TARGET_MULTI_PROFILE=y"
-          echo "CONFIG_TARGET_DEVICE_airoha_${SOC}_DEVICE_${PROFILE}=y"
-          echo "CONFIG_TARGET_DEVICE_PACKAGES_airoha_${SOC}_DEVICE_${PROFILE}=\"\""
-        } >> .config
-        echo "已裁剪为单机型: CONFIG_TARGET_DEVICE_airoha_${SOC}_DEVICE_${PROFILE}=y"
-
-    # =========================================================
-    # 8. diy-part2.sh —— 时区改为中国
-    # =========================================================
-    - name: Set timezone to China (diy-part2.sh)
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        chmod +x "$GITHUB_WORKSPACE/$DIY_P2_SH"
-        "$GITHUB_WORKSPACE/$DIY_P2_SH"
-
-    # =========================================================
-    # 9. defconfig + 生成工具链缓存 Key + 校验机型
-    # =========================================================
-    - name: Generate toolchain cache key
-      id: cache-key
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        echo "===== make defconfig ====="
-        make defconfig 2>&1 | tail -5
-
-        MISSING=""
-        for p in kmod-airoha-xpon kmod-airoha-pon-frontend airoha-pond airoha-ponctl luci-app-pon; do
-          if ! grep -q "^CONFIG_PACKAGE_${p}=y" .config; then
-            MISSING="$MISSING$p"
-          fi
-        done
-        if [ -n "$MISSING" ]; then
-          echo "::error::以下关键包在 defconfig 后未启用，检查 feeds 是否完整:$MISSING"
-          exit 1
-        fi
-        echo "✅ PON 关键包校验通过"
-
-        if ! grep -q "^CONFIG_TARGET_DEVICE_airoha_${SOC}_DEVICE_${PROFILE}=y" .config; then
-          echo "::error::机型 ${PROFILE} 在 ${SOC} 下不存在，请检查 profile 名称"
-          exit 1
-        fi
-        echo "机型校验通过: ${PROFILE}"
-
-        TARGET=$(grep '^CONFIG_TARGET_BOARD=' .config | cut -d'"' -f2)
-        SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' .config | cut -d'"' -f2)
-
-        TOOLS_HASH=$(find tools toolchain -type f \( -name "Makefile" -o -name "*.mk" \) \
-          -exec md5sum {} + 2>/dev/null | sort | md5sum | cut -d' ' -f1)
-
-        CACHE_KEY="ponwrt-toolchain-${TARGET}-${SUBTARGET}-${TOOLS_HASH:0:16}"
-        CACHE_PREFIX="ponwrt-toolchain-${TARGET}-${SUBTARGET}"
-
-        echo "CACHE_KEY=$CACHE_KEY"       >> "$GITHUB_OUTPUT"
-        echo "CACHE_PREFIX=$CACHE_PREFIX" >> "$GITHUB_OUTPUT"
-        echo "========================================"
-        echo "缓存 Key  : $CACHE_KEY"
-        echo "缓存前缀  : $CACHE_PREFIX"
-        echo "========================================"
-
-    # =========================================================
-    # 9.5 下载工具链源码
-    # =========================================================
-    - name: Download toolchain sources
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        for i in 1 2 3; do
-          echo "===== 第 $i 次尝试: tools/toolchain download ====="
-          if make tools/download toolchain/download -j8; then
-            echo "✅ 下载完成"
-            break
-          fi
-          echo "::warning::第 $i 次下载失败，5 秒后重试"
-          sleep 5
-        done
-
-        find dl -maxdepth 1 -size -1024c -type f -exec rm -f {} \; 2>/dev/null
-        echo "dl 目录共 $(ls -1 dl 2>/dev/null | wc -l) 个文件"
-        ls -lh dl 2>/dev/null | head -20
-
-        MISS=""
-        for pat in "musl-*.tar.gz" "gcc-*" "binutils-*"; do
-          if ! ls dl/$pat >/dev/null 2>&1; then
-            MISS="$MISS$pat"
-          fi
-        done
-        if [ -n "$MISS" ]; then
-          echo "::error::工具链源码缺失:$MISS 请检查网络或 dl 缓存"
-          exit 1
-        fi
-        echo "✅ 工具链源码校验通过"
-
-    # =========================================================
-    # 10. 恢复工具链 —— 第一优先 actions/cache
-    # =========================================================
-    - name: Restore toolchain from actions/cache
-      if: env.IGNORE_CACHE != 'true'
-      uses: actions/cache/restore@v4
-      id: cache-restore
-      with:
-        path: |
-          ${{ env.BUILD_ROOT }}/openwrt/staging_dir/host*
-          ${{ env.BUILD_ROOT }}/openwrt/staging_dir/tool*
-        key: ${{ steps.cache-key.outputs.CACHE_KEY }}
-
-    # =========================================================
-    # 11. 恢复工具链 —— 第二优先 Release 备份
-    # =========================================================
-    - name: Restore toolchain from Release backup
-      if: env.IGNORE_CACHE != 'true' && steps.cache-restore.outputs.cache-hit != 'true'
-      id: release-restore
-      continue-on-error: true
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        CACHE_KEY="${{ steps.cache-key.outputs.CACHE_KEY }}"
-        ASSET_NAME="${CACHE_KEY}.tzst"
-
-        if ! gh release view toolchain-cache --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-          echo "restored=false" >> "$GITHUB_OUTPUT"
-          echo "toolchain-cache Release 不存在，首次运行"
-          exit 0
-        fi
-
-        if gh release view toolchain-cache --repo "$GITHUB_REPOSITORY" \
-             --json assets -q '.assets[].name' 2>/dev/null | grep -qx "$ASSET_NAME"; then
-          echo "从 Release 下载工具链: $ASSET_NAME"
-          gh release download toolchain-cache --repo "$GITHUB_REPOSITORY" -p "$ASSET_NAME" -D .
-          tar -I unzstd -xf "$ASSET_NAME" || tar -xf "$ASSET_NAME"
-          rm -f "$ASSET_NAME"
-          echo "restored=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "restored=false" >> "$GITHUB_OUTPUT"
-          echo "Release 中无匹配缓存"
-        fi
-
-    # =========================================================
-    # 12. 处理工具链
-    # =========================================================
-    - name: Handle toolchain
-      id: toolchain
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        CACHE_HIT="${{ steps.cache-restore.outputs.cache-hit }}"
-        RELEASE_HIT="${{ steps.release-restore.outputs.restored }}"
-        [ "$IGNORE_CACHE" = "true" ] && CACHE_HIT="" && RELEASE_HIT=""
-
-        if [ "$CACHE_HIT" = "true" ]; then
-          echo "actions/cache 命中，跳过工具链编译"
-          echo "need_build=false"        >> "$GITHUB_OUTPUT"
-          echo "need_save_cache=false"  >> "$GITHUB_OUTPUT"
-          echo "need_save_release=false" >> "$GITHUB_OUTPUT"
-        elif [ "$RELEASE_HIT" = "true" ]; then
-          echo "Release 缓存命中，回写 actions/cache"
-          echo "need_build=false"        >> "$GITHUB_OUTPUT"
-          echo "need_save_cache=true"   >> "$GITHUB_OUTPUT"
-          echo "need_save_release=false" >> "$GITHUB_OUTPUT"
-        else
-          echo "无可用缓存，开始编译工具链..."
-          make tools/install -j"$(nproc)" || make tools/install -j1 V=s || { echo "tools 编译失败"; exit 1; }
-          make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s || { echo "toolchain 编译失败"; exit 1; }
-          echo "need_build=true"         >> "$GITHUB_OUTPUT"
-          echo "need_save_cache=true"   >> "$GITHUB_OUTPUT"
-          echo "need_save_release=true" >> "$GITHUB_OUTPUT"
-        fi
-
-        sed -i 's/ $(tool.*\/stamp-compile)//' Makefile
-
-    # =========================================================
-    # 13. 保存工具链到 actions/cache
-    # =========================================================
-    - name: Save toolchain to actions/cache
-      uses: actions/cache/save@v4
-      if: steps.toolchain.outputs.need_save_cache == 'true'
-      with:
-        path: |
-          ${{ env.BUILD_ROOT }}/openwrt/staging_dir/host*
-          ${{ env.BUILD_ROOT }}/openwrt/staging_dir/tool*
-        key: ${{ steps.cache-key.outputs.CACHE_KEY }}
-
-    # =========================================================
-    # 14. 保存工具链到 Release 备份
-    # =========================================================
-    - name: Save toolchain to Release backup
-      if: steps.toolchain.outputs.need_save_release == 'true'
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        CACHE_KEY="${{ steps.cache-key.outputs.CACHE_KEY }}"
-        CACHE_PREFIX="${{ steps.cache-key.outputs.CACHE_PREFIX }}"
-
-        tar -I zstdmt -cf "${CACHE_KEY}.tzst" staging_dir/host* staging_dir/tool*
-        ls -lh "${CACHE_KEY}.tzst"
-
-        gh release view toolchain-cache --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-          gh release create toolchain-cache --repo "$GITHUB_REPOSITORY" \
-            --title "Toolchain Cache" --notes "自动生成的工具链缓存，请勿手动删除" --latest=false
-
-        gh release view toolchain-cache --repo "$GITHUB_REPOSITORY" --json assets \
-          -q '.assets[].name' 2>/dev/null | grep "^${CACHE_PREFIX}" | while read -r old; do
-            gh release delete-asset toolchain-cache "$old" --repo "$GITHUB_REPOSITORY" -y 2>/dev/null || true
-          done
-
-        gh release upload toolchain-cache "${CACHE_KEY}.tzst" --repo "$GITHUB_REPOSITORY" --clobber
-        rm -f "${CACHE_KEY}.tzst"
-
-    # =========================================================
-    # 15. ccache 缓存
-    # =========================================================
-    - name: Cache ccache
-      if: env.USE_CCACHE == 'true' && env.BUILD_SCOPE != 'toolchain-only'
-      uses: actions/cache@v4
-      continue-on-error: true
-      with:
-        path: ${{ env.BUILD_ROOT }}/openwrt/.ccache
-        key: ponwrt-ccache-${{ env.SOC }}-${{ github.run_id }}
-        restore-keys: |
-          ponwrt-ccache-${{ env.SOC }}-
-
-    # =========================================================
-    # 16. SSH 调试
-    # =========================================================
-    - name: SSH connection to Actions
-      uses: mxschmitt/action-tmate@v3
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh != 'false') || contains(github.event.action, 'ssh')
-
-    # =========================================================
-    # 17. 下载软件包
-    # =========================================================
-    - name: Download packages
-      id: package
-      if: env.BUILD_SCOPE != 'toolchain-only'
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        make defconfig
-        for i in 1 2 3; do
-          echo "===== 第 $i 次尝试: make download ====="
-          if make download -j8; then break; fi
-          sleep 5
-        done
-        find dl -maxdepth 1 -size -1024c -type f -exec rm -f {} \; 2>/dev/null
-        echo "dl 目录共 $(ls -1 dl 2>/dev/null | wc -l) 个文件"
-
-    # =========================================================
-    # 18. 编译固件
-    # =========================================================
-    - name: Compile the firmware
-      id: compile
-      if: env.BUILD_SCOPE != 'toolchain-only'
-      run: |
-        cd "$BUILD_ROOT/openwrt"
-        echo "开始编译 ($(nproc) 线程) / 机型: ${PROFILE}"
-        df -hT /
-
-        if make -j"$(nproc)"; then
-          echo "多线程编译成功"
-        elif make -j1; then
-          echo "单线程编译成功"
-        elif make -j1 V=s; then
-          echo "单线程详细日志编译成功"
-        else
-          echo "编译失败"
-          exit 1
-        fi
-
-        df -hT /
-        echo "status=success" >> "$GITHUB_OUTPUT"
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> "$GITHUB_ENV"
-
-    # =========================================================
-    # 19. 空间检查
-    # =========================================================
-    - name: Check space usage
-      if: (!cancelled())
-      run: df -hT
-
-    # =========================================================
-    # 20. 上传 bin 目录
-    # =========================================================
-    - name: Upload bin directory
-      uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin_${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
-
-    # =========================================================
-    # 21. 整理固件、全量包打包与独立插件提取
-    # =========================================================
-    - name: Organize files & extract packages
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && steps.compile.outputs.status == 'success'
-      run: |
-        cd "$BUILD_ROOT"/openwrt/bin/targets/*/*
-        TARGET_DIR="$PWD"
-        echo "FIRMWARE=$TARGET_DIR" >> "$GITHUB_ENV"
-
-        # --- 功能 1: 打包全量 packages 库 (APK/IPK + 内核模块) ---
-        if [ "${{ github.event.inputs.pack_all_packages }}" = "true" ]; then
-          echo "📦 [Pack Packages] 开始打包全量安装包..."
-          TMP_PKG_DIR=$(mktemp -d)
-
-          # 拷贝机型特有包/内核模块 (targets/*/*/packages)
-          if [ -d "$TARGET_DIR/packages" ]; then
-            cp -r "$TARGET_DIR/packages" "$TMP_PKG_DIR/target_packages"
+          if [ -x "$GITHUB_WORKSPACE/scripts/init_build_environment.sh" ]; then
+            bash "$GITHUB_WORKSPACE/scripts/init_build_environment.sh" || true
+          else
+            sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)' || true
           fi
 
-          # 拷贝全局通用插件包 (bin/packages/*)
-          if [ -d "$BUILD_ROOT/openwrt/bin/packages" ]; then
-            cp -r "$BUILD_ROOT/openwrt/bin/packages" "$TMP_PKG_DIR/feed_packages"
+          sudo -E apt-get -yqq autoremove --purge
+          sudo -E apt-get -yqq clean
+          sudo -E timedatectl set-timezone "$TZ"
+
+          sudo mkdir -p /workdir
+          sudo chown "$USER":"$USER" /workdir
+
+          echo "磁盘空间:"; df -hT
+          echo "内存/Swap:"; free -h
+
+      # =========================================================
+      # 2. 克隆源码
+      # =========================================================
+      - name: Clone source code
+        run: |
+          cd "$BUILD_ROOT"
+          df -hT "$PWD"
+          git clone "$REPO_URL" -b "$REPO_BRANCH" --single-branch --depth=1 openwrt
+          ln -sf "$BUILD_ROOT/openwrt" "$GITHUB_WORKSPACE/openwrt"
+          cd openwrt && echo "commit: $(git rev-parse --short HEAD)"
+
+      # =========================================================
+      # 3. dl 下载缓存 (按周复用)
+      # =========================================================
+      - name: Cache dl directory
+        if: env.USE_DL_CACHE == 'true'
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: /workdir/openwrt/dl
+          key: ponwrt-dl-${{ github.event.inputs.branch || 'master' }}-${{ steps.resolve.outputs.week }}
+          restore-keys: |
+            ponwrt-dl-${{ github.event.inputs.branch || 'master' }}-
+          save-always: true
+
+      # =========================================================
+      # 4. 更新并安装 Feeds
+      # =========================================================
+      - name: Update & install feeds
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          if [ -n "${FEEDS_CONF}" ] && [ -e "$GITHUB_WORKSPACE/${FEEDS_CONF}" ]; then
+            cp "$GITHUB_WORKSPACE/${FEEDS_CONF}" feeds.conf.default
+          fi
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # =========================================================
+      # 5. diy-part1.sh —— 拉取可选插件
+      # =========================================================
+      - name: Pull optional plugins (diy-part1.sh)
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          chmod +x "$GITHUB_WORKSPACE/$DIY_P1_SH"
+          "$GITHUB_WORKSPACE/$DIY_P1_SH"
+
+      # =========================================================
+      # 6. 加载 .config —— 源码基座 defconfig 打底 + 机型精简配置追加
+      # =========================================================
+      - name: Load custom configuration
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          [ -e "$GITHUB_WORKSPACE/files" ] && cp -r "$GITHUB_WORKSPACE/files" files
+          [ -d files/sbin ] && chmod +x files/sbin/* 2>/dev/null || true
+          [ -d files/etc/uci-defaults ] && chmod +x files/etc/uci-defaults/* 2>/dev/null || true
+
+          if [ -f "configs/${SOC}.config" ]; then
+            cp "configs/${SOC}.config" .config
+            echo "✅ 已用源码基座 defconfig 打底: configs/${SOC}.config"
+          else
+            : > .config
+            echo "::warning::源码中无 configs/${SOC}.config，仅用精简配置"
           fi
 
-          (cd "$TMP_PKG_DIR" && zip -rq "$TARGET_DIR/${{ env.DEVICE_NAME }}-all-packages.zip" .)
-          rm -rf "$TMP_PKG_DIR"
-          echo "✅ 全量包已归档: ${{ env.DEVICE_NAME }}-all-packages.zip"
-        fi
+          if [ -e "$GITHUB_WORKSPACE/${CONFIG_FILE}" ]; then
+            cat "$GITHUB_WORKSPACE/${CONFIG_FILE}" >> .config
+            echo "✅ 已追加机型配置: ${CONFIG_FILE}"
+          elif [ -e "$GITHUB_WORKSPACE/configs/${SOC}.config" ]; then
+            cat "$GITHUB_WORKSPACE/configs/${SOC}.config" >> .config
+            echo "✅ 已追加 SoC 通用配置"
+          else
+            echo "::error::找不到机型配置 ${CONFIG_FILE}"
+            exit 1
+          fi
 
-        # --- 功能 2: 独立提取自定义插件/内核模块 ---
-        WANT_PKGS="${{ github.event.inputs.extract_specific_packages }}"
-        if [ -n "$WANT_PKGS" ]; then
-          echo "🔍 [Extract Plugins] 开始提取指定插件: $WANT_PKGS"
-          # 支持空格或逗号分隔
-          CLEAN_PKGS=$(echo "$WANT_PKGS" | tr ',' ' ')
+      # =========================================================
+      # 7. 按机型裁剪: 只保留当前矩阵的目标机型
+      # =========================================================
+      - name: Apply device profile
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          sed -i '/CONFIG_TARGET_DEVICE_/d; /^CONFIG_TARGET_MULTI_PROFILE=/d' .config
+          {
+            echo "CONFIG_TARGET_MULTI_PROFILE=y"
+            echo "CONFIG_TARGET_DEVICE_airoha_${SOC}_DEVICE_${PROFILE}=y"
+            echo "CONFIG_TARGET_DEVICE_PACKAGES_airoha_${SOC}_DEVICE_${PROFILE}=\"\""
+          } >> .config
+          echo "已裁剪为单机型: CONFIG_TARGET_DEVICE_airoha_${SOC}_DEVICE_${PROFILE}=y"
 
-          for item in $CLEAN_PKGS; do
-            [ -z "$item" ] && continue
-            # 去除可能自带的扩展名后缀
-            base=$(echo "$item" | sed -E 's/\.(apk|ipk)$//')
-            echo "正在检索匹配: $base"
-            
-            # 在整个 openwrt/bin 目录下全局查找对应的 apk/ipk 安装包
-            FOUND_FILES=$(find "$BUILD_ROOT/openwrt/bin" -type f \( -name "${base}*.apk" -o -name "${base}*.ipk" \))
-            if [ -n "$FOUND_FILES" ]; then
-              for f in $FOUND_FILES; do
-                echo "-> 提取并复制: $(basename "$f")"
-                cp -f "$f" "$TARGET_DIR/"
-              done
-            else
-              echo "::warning::未找到匹配插件文件: $item"
+      # =========================================================
+      # 8. diy-part2.sh —— 时区改为中国
+      # =========================================================
+      - name: Set timezone to China (diy-part2.sh)
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          chmod +x "$GITHUB_WORKSPACE/$DIY_P2_SH"
+          "$GITHUB_WORKSPACE/$DIY_P2_SH"
+
+      # =========================================================
+      # 9. defconfig + 生成工具链缓存 Key + 校验机型
+      #    【唯一一次 defconfig】后续步骤严禁再调用，防止依赖树错乱
+      # =========================================================
+      - name: Generate toolchain cache key
+        id: cache-key
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          echo "===== make defconfig ====="
+          make defconfig 2>&1 | tail -5
+
+          MISSING=""
+          for p in kmod-airoha-xpon kmod-airoha-pon-frontend airoha-pond airoha-ponctl luci-app-pon; do
+            if ! grep -q "^CONFIG_PACKAGE_${p}=y" .config; then
+              MISSING="$MISSING $p"
             fi
           done
-        fi
+          if [ -n "$MISSING" ]; then
+            echo "::error::以下关键包在 defconfig 后未启用，检查 feeds 是否完整:$MISSING"
+            exit 1
+          fi
+          echo "✅ PON 关键包校验通过"
 
-        # 清理多余的原始 packages 文件夹，防止 release 上传时发生混淆
-        rm -rf "$TARGET_DIR/packages"
-        echo "status=success" >> "$GITHUB_OUTPUT"
+          if ! grep -q "^CONFIG_TARGET_DEVICE_airoha_${SOC}_DEVICE_${PROFILE}=y" .config; then
+            echo "::error::机型 ${PROFILE} 在 ${SOC} 下不存在，请检查 profile 名称"
+            exit 1
+          fi
+          echo "机型校验通过: ${PROFILE}"
 
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success'
-      with:
-        name: OpenWrt_firmware_${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
+          TARGET=$(grep '^CONFIG_TARGET_BOARD=' .config | cut -d'"' -f2)
+          SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' .config | cut -d'"' -f2)
 
-    # =========================================================
-    # 22. 生成 Release 说明 & 双仓发布
-    # =========================================================
-    - name: Generate release tag & notes
-      id: tag
-      if: (env.UPLOAD_RELEASE == 'true' || github.event.inputs.push_external == 'true') && steps.compile.outputs.status == 'success'
-      run: |
-        if [ -z "$FIRMWARE" ] || [ -z "$(ls -A "$FIRMWARE" 2>/dev/null)" ]; then
-          echo "::warning::固件目录为空，跳过 Release"
-          exit 0
-        fi
+          TOOLS_HASH=$(find tools toolchain -type f \( -name "Makefile" -o -name "*.mk" \) \
+            -exec md5sum {} + 2>/dev/null | sort | md5sum | cut -d' ' -f1)
 
-        BUILD_TIME=$(date +"%Y%m%d-%H%M")
-        RELEASE_TAG=$(echo "${DEVICE_NAME}-${REPO_BRANCH}-${BUILD_TIME}" | sed 's/[^a-zA-Z0-9._-]/-/g')
-        echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          CACHE_KEY="ponwrt-toolchain-${TARGET}-${SUBTARGET}-${TOOLS_HASH:0:16}"
+          CACHE_PREFIX="ponwrt-toolchain-${TARGET}-${SUBTARGET}"
 
-        touch release.txt
-        {
-          echo "## PonWrt 自动编译固件"
-          echo ""
-          echo "### 编译信息"
-          echo "| 项目 | 详情 |"
-          echo "|------|------|"
-          echo "| 机型 | \`${PROFILE}\` |"
-          echo "| SoC | \`${SOC}\` |"
-          #echo "| 源码 | ${REPO_URL} |"
-          #echo "| 分支 | \`${REPO_BRANCH}\` |"
-          #echo "| 提交 | \`$(cd "$BUILD_ROOT"/openwrt && git rev-parse --short HEAD)\` |"
-          echo "| 编译时间 | $(date '+%Y-%m-%d %H:%M:%S') (Shanghai) |"
-          echo ""
-          echo "### 固件及附件清单校验"
-          echo '```' >> release.txt
-          (cd "$FIRMWARE" && sha256sum * 2>/dev/null | grep -vE "sha256sums|packages") >> release.txt
-          echo '```' >> release.txt
-          echo ""
-          echo "---"
-          echo "> 安装前请用 AN758x-Stock2UBI 备份原厂 flash，刷机后恢复 PON/校准数据。"
-          echo "> 校准数据：${PROFILE} 对应 $(grep -m1 '^# 校准/身份数据' "$GITHUB_WORKSPACE/${CONFIG_FILE}" | cut -d: -f2-)"
-        } >> release.txt
+          echo "CACHE_KEY=$CACHE_KEY"       >> "$GITHUB_OUTPUT"
+          echo "CACHE_PREFIX=$CACHE_PREFIX" >> "$GITHUB_OUTPUT"
+          echo "========================================"
+          echo "缓存 Key  : $CACHE_KEY"
+          echo "缓存前缀  : $CACHE_PREFIX"
+          echo "========================================"
 
-        # --- 处理第三方仓库 Token 优先级逻辑 ---
-        IN_TOKEN="${{ github.event.inputs.external_token_input }}"
-        # 兼容读取 PUSH_EXTERNAL_RELEASE_TOKEN 或 EXTERNAL_RELEASE_TOKEN
-        SEC_TOKEN="${{ secrets.PUSH_EXTERNAL_RELEASE_TOKEN || secrets.EXTERNAL_RELEASE_TOKEN }}"
-        FINAL_TOKEN="${IN_TOKEN:-$SEC_TOKEN}"
+      # =========================================================
+      # 9.5 下载工具链源码
+      # =========================================================
+      - name: Download toolchain sources
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          for i in 1 2 3; do
+            echo "===== 第 $i 次尝试: tools/toolchain download ====="
+            if make tools/download toolchain/download -j8; then
+              echo "✅ 下载完成"
+              break
+            fi
+            echo "::warning::第 $i 次下载失败，5 秒后重试"
+            sleep 5
+          done
 
-        if [ -n "$FINAL_TOKEN" ]; then
-          echo "::add-mask::$FINAL_TOKEN"
-          echo "EXT_TOKEN=$FINAL_TOKEN" >> "$GITHUB_ENV"
-        fi
+          find dl -size -1024c -type f -exec rm -f {} \; 2>/dev/null
+          echo "dl 目录共 $(ls -1 dl 2>/dev/null | wc -l) 个文件"
+          ls -lh dl 2>/dev/null | head -20
 
-        echo "status=success" >> "$GITHUB_OUTPUT"
+          MISS=""
+          for pat in "musl-*.tar.gz" "gcc-*" "binutils-*"; do
+            if ! ls dl/$pat >/dev/null 2>&1; then
+              MISS="$MISS $pat"
+            fi
+          done
+          if [ -n "$MISS" ]; then
+            echo "::error::工具链源码缺失:$MISS 请检查网络或 dl 缓存"
+            exit 1
+          fi
+          echo "✅ 工具链源码校验通过"
 
-    # --- 22.1 发布到【本仓库】 ---
-    - name: Upload firmware to CURRENT repo release
-      uses: softprops/action-gh-release@v2.0.8
-      if: steps.tag.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        make_latest: true
-        fail_on_unmatched_files: false
-        files: |
-          ${{ env.FIRMWARE }}/*.bin
-          ${{ env.FIRMWARE }}/*.ubi
-          ${{ env.FIRMWARE }}/*.img
-          ${{ env.FIRMWARE }}/*.img.gz
-          ${{ env.FIRMWARE }}/*.itb
-          ${{ env.FIRMWARE }}/*.fit
-          ${{ env.FIRMWARE }}/*.trx
-          ${{ env.FIRMWARE }}/*.tar.gz
-          ${{ env.FIRMWARE }}/*.manifest
-          ${{ env.FIRMWARE }}/*.json
-          ${{ env.FIRMWARE }}/*.zip
-          ${{ env.FIRMWARE }}/*.apk
-          ${{ env.FIRMWARE }}/*.ipk
+      # =========================================================
+      # 10. 恢复工具链 —— 第一优先 actions/cache
+      # =========================================================
+      - name: Restore toolchain from actions/cache
+        if: env.IGNORE_CACHE != 'true'
+        uses: actions/cache/restore@v4
+        id: cache-restore
+        with:
+          path: |
+            ${{ env.BUILD_ROOT }}/openwrt/staging_dir/host*
+            ${{ env.BUILD_ROOT }}/openwrt/staging_dir/tool*
+          key: ${{ steps.cache-key.outputs.CACHE_KEY }}
 
-    # --- 22.2 发布到【第三方/对方仓库】 ---
-    - name: Upload firmware to EXTERNAL repo release
-      uses: softprops/action-gh-release@v2.0.8
-      if: steps.tag.outputs.status == 'success' && github.event.inputs.push_external == 'true' && github.event.inputs.external_repo != '' && env.EXT_TOKEN != ''
-      continue-on-error: true
-      with:
-        repository: ${{ github.event.inputs.external_repo }}
-        token: ${{ env.EXT_TOKEN }}
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        make_latest: true
-        fail_on_unmatched_files: false
-        files: |
-          ${{ env.FIRMWARE }}/*.bin
-          ${{ env.FIRMWARE }}/*.ubi
-          ${{ env.FIRMWARE }}/*.img
-          ${{ env.FIRMWARE }}/*.img.gz
-          ${{ env.FIRMWARE }}/*.itb
-          ${{ env.FIRMWARE }}/*.fit
-          ${{ env.FIRMWARE }}/*.trx
-          ${{ env.FIRMWARE }}/*.tar.gz
-          ${{ env.FIRMWARE }}/*.manifest
-          ${{ env.FIRMWARE }}/*.json
-          ${{ env.FIRMWARE }}/*.zip
-          ${{ env.FIRMWARE }}/*.apk
-          ${{ env.FIRMWARE }}/*.ipk
+      # =========================================================
+      # 11. 恢复工具链 —— 第二优先 Release 备份
+      # =========================================================
+      - name: Restore toolchain from Release backup
+        if: env.IGNORE_CACHE != 'true' && steps.cache-restore.outputs.cache-hit != 'true'
+        id: release-restore
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          CACHE_KEY="${{ steps.cache-key.outputs.CACHE_KEY }}"
+          ASSET_NAME="${CACHE_KEY}.tzst"
 
-    # =========================================================
-    # 23. 清理旧记录
-    # =========================================================
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        retain_days: 1
-        keep_minimum_runs: 10
+          if ! gh release view toolchain-cache --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "restored=false" >> "$GITHUB_OUTPUT"
+            echo "toolchain-cache Release 不存在，首次运行"
+            exit 0
+          fi
 
-    - name: Remove old releases (Current repo)
-      uses: dev-drprasad/delete-older-releases@v0.3.4
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 10
-        delete_tags: true
-        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-'
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          which unzstd >/dev/null 2>&1 || sudo -E apt-get -yqq install zstd >/dev/null 2>&1 || true
+
+          if gh release view toolchain-cache --repo "$GITHUB_REPOSITORY" \
+               --json assets -q '.assets[].name' 2>/dev/null | grep -qx "$ASSET_NAME"; then
+            echo "从 Release 下载工具链: $ASSET_NAME"
+            gh release download toolchain-cache --repo "$GITHUB_REPOSITORY" -p "$ASSET_NAME" -D .
+            tar -I unzstd -xf "$ASSET_NAME" || tar -xf "$ASSET_NAME"
+            rm -f "$ASSET_NAME"
+            echo "restored=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "restored=false" >> "$GITHUB_OUTPUT"
+            echo "Release 中无匹配缓存"
+          fi
+
+      # =========================================================
+      # 12. 处理工具链 (使用 touch stamp-compile 替代破坏性的 sed)
+      # =========================================================
+      - name: Handle toolchain
+        id: toolchain
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          CACHE_HIT="${{ steps.cache-restore.outputs.cache-hit }}"
+          RELEASE_HIT="${{ steps.release-restore.outputs.restored }}"
+          [ "$IGNORE_CACHE" = "true" ] && CACHE_HIT="" && RELEASE_HIT=""
+
+          if [ "$CACHE_HIT" = "true" ]; then
+            echo "actions/cache 命中，跳过工具链编译"
+            echo "need_build=false"        >> "$GITHUB_OUTPUT"
+            echo "need_save_cache=false"   >> "$GITHUB_OUTPUT"
+            echo "need_save_release=false" >> "$GITHUB_OUTPUT"
+          elif [ "$RELEASE_HIT" = "true" ]; then
+            echo "Release 缓存命中，回写 actions/cache"
+            echo "need_build=false"        >> "$GITHUB_OUTPUT"
+            echo "need_save_cache=true"    >> "$GITHUB_OUTPUT"
+            echo "need_save_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "无可用缓存，开始编译工具链..."
+            make tools/install -j"$(nproc)" || make tools/install -j1 V=s || { echo "tools 编译失败"; exit 1; }
+            make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s || { echo "toolchain 编译失败"; exit 1; }
+            echo "need_build=true"         >> "$GITHUB_OUTPUT"
+            echo "need_save_cache=true"    >> "$GITHUB_OUTPUT"
+            echo "need_save_release=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+          # 安全标记工具链已编译，不破坏顶层 Makefile 依赖关系
+          touch toolchain/stamp-compile tools/stamp-compile 2>/dev/null || true
+
+      # =========================================================
+      # 12.5 ccache 补装保护（仅 USE_CCACHE=true 时执行）
+      # =========================================================
+      - name: Setup ccache (opt-in)
+        if: env.USE_CCACHE == 'true'
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          sed -i '/^CONFIG_CCACHE=/d; /^# CONFIG_CCACHE is not set/d' .config
+          echo 'CONFIG_CCACHE=y' >> .config
+          make defconfig >/dev/null 2>&1 || true
+
+          if [ ! -x staging_dir/host/bin/ccache ]; then
+            echo "ccache 缺失，补装 tools/ccache ..."
+            if ! make tools/ccache/install -j"$(nproc)"; then
+              echo "::warning::tools/ccache 安装失败，自动关闭 ccache 继续编译"
+              sed -i 's/^CONFIG_CCACHE=y/# CONFIG_CCACHE is not set/' .config
+            fi
+          fi
+
+          if ! grep -q '^CONFIG_CCACHE=y' .config; then
+            echo "ccache: 已关闭"
+          elif [ -x staging_dir/host/bin/ccache ]; then
+            echo "ccache: 已启用 ($(staging_dir/host/bin/ccache --version | head -1))"
+          else
+            echo "::warning::ccache 二进制仍缺失，强制关闭"
+            sed -i 's/^CONFIG_CCACHE=y/# CONFIG_CCACHE is not set/' .config
+          fi
+
+      # =========================================================
+      # 13. 保存工具链到 actions/cache
+      # =========================================================
+      - name: Save toolchain to actions/cache
+        uses: actions/cache/save@v4
+        if: steps.toolchain.outputs.need_save_cache == 'true'
+        continue-on-error: true
+        with:
+          path: |
+            ${{ env.BUILD_ROOT }}/openwrt/staging_dir/host*
+            ${{ env.BUILD_ROOT }}/openwrt/staging_dir/tool*
+          key: ${{ steps.cache-key.outputs.CACHE_KEY }}
+
+      # =========================================================
+      # 14. 保存工具链到 Release 备份
+      # =========================================================
+      - name: Save toolchain to Release backup
+        if: steps.toolchain.outputs.need_save_release == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          CACHE_KEY="${{ steps.cache-key.outputs.CACHE_KEY }}"
+          CACHE_PREFIX="${{ steps.cache-key.outputs.CACHE_PREFIX }}"
+
+          tar -I zstdmt -cf "${CACHE_KEY}.tzst" staging_dir/host* staging_dir/tool*
+          ls -lh "${CACHE_KEY}.tzst"
+
+          gh release view toolchain-cache --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create toolchain-cache --repo "$GITHUB_REPOSITORY" \
+              --title "Toolchain Cache" --notes "自动生成的工具链缓存，请勿手动删除" --latest=false
+
+          gh release view toolchain-cache --repo "$GITHUB_REPOSITORY" --json assets \
+            -q '.assets[].name' 2>/dev/null | grep "^${CACHE_PREFIX}" | while read -r old; do
+              gh release delete-asset toolchain-cache "$old" --repo "$GITHUB_REPOSITORY" -y 2>/dev/null || true
+            done
+
+          gh release upload toolchain-cache "${CACHE_KEY}.tzst" --repo "$GITHUB_REPOSITORY" --clobber
+          rm -f "${CACHE_KEY}.tzst"
+
+      # =========================================================
+      # 15. ccache 缓存
+      # =========================================================
+      - name: Cache ccache
+        if: env.USE_CCACHE == 'true' && env.BUILD_SCOPE != 'toolchain-only'
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: ${{ env.BUILD_ROOT }}/openwrt/.ccache
+          key: ponwrt-ccache-${{ env.SOC }}-${{ steps.resolve.outputs.week }}
+          restore-keys: |
+            ponwrt-ccache-${{ env.SOC }}-
+
+      # =========================================================
+      # 16. SSH 调试
+      # =========================================================
+      - name: SSH connection to Actions
+        uses: mxschmitt/action-tmate@v3
+        if: >-
+          github.event.inputs.ssh == 'true'
+          && github.actor == github.repository_owner
+
+      # =========================================================
+      # 17. 下载软件包（严禁在此处重复执行 make defconfig！）
+      # =========================================================
+      - name: Download packages
+        id: package
+        if: env.BUILD_SCOPE != 'toolchain-only'
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          for i in 1 2 3; do
+            echo "===== 第 $i 次尝试: make download ====="
+            if make download -j8; then break; fi
+            sleep 5
+          done
+          find dl -size -1024c -type f -exec ls -l {} \; 2>/dev/null
+          find dl -size -1024c -type f -exec rm -f {} \; 2>/dev/null
+          echo "dl 目录共 $(ls -1 dl 2>/dev/null | wc -l) 个文件"
+
+      # =========================================================
+      # 18. 编译固件（按可用内存动态计算并发数，防止 OOM 杀进程导致头文件缺失）
+      # =========================================================
+      - name: Compile the firmware
+        id: compile
+        if: env.BUILD_SCOPE != 'toolchain-only'
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          # 可用内存(MiB) / 2GiB 每 job，下限 1、上限 nproc
+          JOBS=$(awk -v p="$(nproc)" '/^MemAvailable:/{m=int($2/2097152)+1} END{print m<p?m:p}' /proc/meminfo)
+          JOBS=$(( JOBS < 1 ? 1 : JOBS ))
+          echo "开始编译 (${JOBS} 线程) / 机型: ${PROFILE}"
+          df -hT /
+
+          if make -j"${JOBS}"; then
+            echo "多线程编译成功"
+          elif make -j1; then
+            echo "单线程编译成功"
+          elif make -j1 V=s; then
+            echo "单线程详细日志编译成功"
+          else
+            echo "编译失败"
+            exit 1
+          fi
+
+          df -hT /
+          echo "status=success" >> "$GITHUB_OUTPUT"
+          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> "$GITHUB_ENV"
+
+      # =========================================================
+      # 19. 空间检查
+      # =========================================================
+      - name: Check space usage
+        if: (!cancelled())
+        run: df -hT
+
+      # =========================================================
+      # 20. 上传 bin 目录 (使用绝对路径避免符号链接空包)
+      # =========================================================
+      - name: Upload bin directory
+        uses: actions/upload-artifact@v4
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+        with:
+          name: OpenWrt_bin_${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: ${{ env.BUILD_ROOT }}/openwrt/bin
+
+      # =========================================================
+      # 21. 整理固件、全量包打包与独立插件提取
+      # =========================================================
+      - name: Organize files & extract packages
+        id: organize
+        if: env.UPLOAD_FIRMWARE == 'true' && steps.compile.outputs.status == 'success'
+        run: |
+          cd "$BUILD_ROOT"/openwrt/bin/targets/*/*
+          TARGET_DIR="$PWD"
+          echo "FIRMWARE=$TARGET_DIR" >> "$GITHUB_ENV"
+
+          # --- 功能 1: 打包全量 packages 库 (APK/IPK + 内核模块) ---
+          if [ "${{ github.event.inputs.pack_all_packages }}" = "true" ]; then
+            echo "📦 [Pack Packages] 开始打包全量安装包..."
+            TMP_PKG_DIR=$(mktemp -d)
+
+            if [ -d "$TARGET_DIR/packages" ]; then
+              cp -r "$TARGET_DIR/packages" "$TMP_PKG_DIR/target_packages"
+            fi
+
+            if [ -d "$BUILD_ROOT/openwrt/bin/packages" ]; then
+              cp -r "$BUILD_ROOT/openwrt/bin/packages" "$TMP_PKG_DIR/feed_packages"
+            fi
+
+            (cd "$TMP_PKG_DIR" && zip -rq "$TARGET_DIR/${{ env.DEVICE_NAME }}-all-packages.zip" .)
+            rm -rf "$TMP_PKG_DIR"
+            echo "✅ 全量包已归档: ${{ env.DEVICE_NAME }}-all-packages.zip"
+          fi
+
+          # --- 功能 2: 独立提取自定义插件/内核模块 ---
+          WANT_PKGS="${{ github.event.inputs.extract_specific_packages }}"
+          if [ -n "$WANT_PKGS" ]; then
+            echo "🔍 [Extract Plugins] 开始提取指定插件: $WANT_PKGS"
+            CLEAN_PKGS=$(echo "$WANT_PKGS" | tr ',' ' ')
+
+            for item in $CLEAN_PKGS; do
+              [ -z "$item" ] && continue
+              base=$(echo "$item" | sed -E 's/\.(apk|ipk)$//')
+              echo "正在检索匹配: $base"
+
+              FOUND_FILES=$(find "$BUILD_ROOT/openwrt/bin" -type f \( -name "${base}*.apk" -o -name "${base}*.ipk" \))
+              if [ -n "$FOUND_FILES" ]; then
+                for f in $FOUND_FILES; do
+                  echo "-> 提取并复制: $(basename "$f")"
+                  cp -f "$f" "$TARGET_DIR/"
+                done
+              else
+                echo "::warning::未找到匹配插件文件: $item"
+              fi
+            done
+          fi
+
+          # 清理多余的原始 packages 文件夹，防止 release 上传时发生混淆
+          rm -rf "$TARGET_DIR/packages"
+          echo "status=success" >> "$GITHUB_OUTPUT"
+
+      - name: Upload firmware directory
+        uses: actions/upload-artifact@v4
+        if: steps.organize.outputs.status == 'success'
+        with:
+          name: OpenWrt_firmware_${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE }}
+
+      # =========================================================
+      # 22. 生成 Release 说明 & 双仓发布
+      # =========================================================
+      - name: Generate release tag & notes
+        id: tag
+        if: (env.UPLOAD_RELEASE == 'true' || github.event.inputs.push_external == 'true') && steps.compile.outputs.status == 'success'
+        run: |
+          if [ -z "$FIRMWARE" ] || [ -z "$(ls -A "$FIRMWARE" 2>/dev/null)" ]; then
+            echo "::warning::固件目录为空，跳过 Release"
+            exit 0
+          fi
+
+          BUILD_TIME=$(date +"%Y%m%d-%H%M")
+          RELEASE_TAG=$(echo "${DEVICE_NAME}-${REPO_BRANCH}-${BUILD_TIME}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+          touch release.txt
+          {
+            echo "## PonWrt 自动编译固件"
+            echo ""
+            echo "### 编译信息"
+            echo "| 项目 | 详情 |"
+            echo "|------|------|"
+            echo "| 机型 | \`${PROFILE}\` |"
+            echo "| SoC | \`${SOC}\` |"
+            echo "| 编译时间 | $(date '+%Y-%m-%d %H:%M:%S') (Shanghai) |"
+            echo ""
+            echo "### 固件及附件清单校验"
+            echo '```'
+            (cd "$FIRMWARE" && sha256sum * 2>/dev/null | grep -vE "sha256sums|packages")
+            echo '```'
+            echo ""
+            echo "---"
+            echo "> 安装前请用 AN758x-Stock2UBI 备份原厂 flash，刷机后恢复 PON/校准数据。"
+            echo "> 校准数据：${PROFILE} 对应 $(grep -m1 '^# 校准/身份数据' "$GITHUB_WORKSPACE/${CONFIG_FILE}" 2>/dev/null | cut -d: -f2-)"
+          } >> release.txt
+
+          # --- 处理第三方仓库 Token 优先级逻辑 ---
+          IN_TOKEN="${{ github.event.inputs.external_token_input }}"
+          SEC_TOKEN="${{ secrets.PUSH_EXTERNAL_RELEASE_TOKEN || secrets.EXTERNAL_RELEASE_TOKEN }}"
+          FINAL_TOKEN="${IN_TOKEN:-$SEC_TOKEN}"
+
+          if [ -n "$FINAL_TOKEN" ]; then
+            echo "::add-mask::$FINAL_TOKEN"
+            echo "EXT_TOKEN=$FINAL_TOKEN" >> "$GITHUB_ENV"
+          fi
+
+          echo "status=success" >> "$GITHUB_OUTPUT"
+
+      # --- 22.1 发布到【本仓库】 ---
+      - name: Upload firmware to CURRENT repo release
+        uses: softprops/action-gh-release@v2.0.8
+        if: steps.tag.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          make_latest: true
+          fail_on_unmatched_files: false
+          files: |
+            ${{ env.FIRMWARE }}/*.bin
+            ${{ env.FIRMWARE }}/*.ubi
+            ${{ env.FIRMWARE }}/*.img
+            ${{ env.FIRMWARE }}/*.img.gz
+            ${{ env.FIRMWARE }}/*.itb
+            ${{ env.FIRMWARE }}/*.fit
+            ${{ env.FIRMWARE }}/*.trx
+            ${{ env.FIRMWARE }}/*.tar.gz
+            ${{ env.FIRMWARE }}/*.manifest
+            ${{ env.FIRMWARE }}/*.json
+            ${{ env.FIRMWARE }}/*.zip
+            ${{ env.FIRMWARE }}/*.apk
+            ${{ env.FIRMWARE }}/*.ipk
+
+      # --- 22.2 发布到【第三方/对方仓库】 ---
+      - name: Upload firmware to EXTERNAL repo release
+        uses: softprops/action-gh-release@v2.0.8
+        if: steps.tag.outputs.status == 'success' && github.event.inputs.push_external == 'true' && github.event.inputs.external_repo != '' && env.EXT_TOKEN != ''
+        continue-on-error: true
+        with:
+          repository: ${{ github.event.inputs.external_repo }}
+          token: ${{ env.EXT_TOKEN }}
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          make_latest: true
+          fail_on_unmatched_files: false
+          files: |
+            ${{ env.FIRMWARE }}/*.bin
+            ${{ env.FIRMWARE }}/*.ubi
+            ${{ env.FIRMWARE }}/*.img
+            ${{ env.FIRMWARE }}/*.img.gz
+            ${{ env.FIRMWARE }}/*.itb
+            ${{ env.FIRMWARE }}/*.fit
+            ${{ env.FIRMWARE }}/*.trx
+            ${{ env.FIRMWARE }}/*.tar.gz
+            ${{ env.FIRMWARE }}/*.manifest
+            ${{ env.FIRMWARE }}/*.json
+            ${{ env.FIRMWARE }}/*.zip
+            ${{ env.FIRMWARE }}/*.apk
+            ${{ env.FIRMWARE }}/*.ipk
+
+      # =========================================================
+      # 23. 清理旧记录 (仅编译成功时清理运行记录，保留失败日志排错)
+      # =========================================================
+      - name: Delete workflow runs
+        if: steps.compile.outputs.status == 'success'
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          retain_days: 1
+          keep_minimum_runs: 10
+
+      - name: Remove old releases (Current repo)
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+        with:
+          keep_latest: 10
+          delete_tags: true
+          delete_tag_pattern: '^${{ env.DEVICE_NAME }}-'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

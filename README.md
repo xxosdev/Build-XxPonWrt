@@ -157,14 +157,22 @@ target/包管理 → DEVICES → PON 内核驱动 → PON 用户态 → PON/IPTV
 | 光模块温度 | `temperature_celsius` | °C |
 | 偏置电流 | `tx_bias_ma` | mA |
 | 供电电压 | `voltage_volts` | V |
+| 上行 / 下行速率 | `tx_bytes` / `rx_bytes` 两次采样求差 | Mibit/s |
+| TCP / UDP 连接数 | `/proc/net/nf_conntrack`（含 NPU 卸载数） | 个 |
 
 ### 数据链路
 
 ```
-概览页 include(70_pon.js)
-  → rpcd file.exec（ACL: luci-app-pon-status）
-  → ponctl --device <dev> status --json
-  → airoha-ponctl 的 convert_optics() 已把 SFF-8472 原始值换算成显示单位
+概览页 include(15_pon.js)
+  ├─ 光功率 → rpcd file.exec（ACL: luci-app-pon-status）
+  │            → ponctl --device <dev> status --json
+  │            → airoha-ponctl 的 convert_optics() 已把 SFF-8472 原始值换算成显示单位
+  ├─ 速率   → 优先 ubus network.device status（rx_bytes/tx_bytes）
+  │            失败回落 sysfs /sys/class/net/<dev>/statistics/{rx,tx}_bytes
+  │            两次采样（间隔 500ms）求差 → Mibit/s
+  └─ 连接数 → rpcd file.exec → /bin/sh /usr/sbin/ponstat-conn
+               → awk 统计 /proc/net/nf_conntrack 的 tcp/udp 条数，
+                 其中带 [OFFLOAD] / [HW_OFFLOAD] 标记的计入「卸载」
 ```
 
 换算规则（`airoha-ponctl/src/src/status.rs`）：
@@ -181,10 +189,13 @@ target/包管理 → DEVICES → PON 内核驱动 → PON 用户态 → PON/IPTV
 
 - 概览页扩展机制：`luci-mod-status` 的 `index.js` 会 `fs.list('/www/luci-static/resources/view/status/include')`，
   按文件名排序后 `L.require()` 每个 `.js`。模块用 `baseclass.extend({ title, load, render })` 导出。
-  文件名 `70_pon.js` 决定它排在 `60_wifi.js` 之后。
+  文件名 `15_pon.js` 决定它排在 `10_system.js` 之后、`20_memory.js` 之前（当前 LuCI 的排序：
+  `10_system` → `20_memory` → `25_storage` → `29_ports` → `30_network` → `40_dhcp` → `50_dsl` → `60_wifi`）。
 - 设备名从 UCI `pon` 配置的 `xpon` 段 `device` 项读取，和 `luci-app-pon` 的 status.js 一致。
 - 无 PON 设备或读取失败时 `render` 返回 `null`，卡片自动隐藏（`load` 里 `Promise.reject()`）。
-- 自带 rpcd ACL（`luci-app-pon-status` 组），授权 `ponctl --device * status --json` 的 exec。
+  速率/连接数读不到时只是对应区域显示「读取失败 / 不可用」，不影响光功率显示。
+- 自带 rpcd ACL（`luci-app-pon-status` 组），授权：`ponctl --device * status --json` 的 exec、
+  `network.device status`、sysfs `statistics` 读取、`/bin/sh /usr/sbin/ponstat-conn`。
   与 `luci-app-pon` 用不同组名，避免 acl.d 同名覆盖。
 
 ## 概览页「温度」一栏
@@ -274,8 +285,10 @@ SHOW_PON_OPTICS=0    # 只显示温度（CPU / WiFi / PON）
 
 概览页轮询间隔 3 秒，故 `tempinfo` 每 3 秒执行一次 `ponctl`。
 `ponctl` 是 Rust 二进制、只读 sysfs，开销可忽略。
-但注意 `luci-app-pon-status` 卡片同样每 3 秒调一次 `ponctl`，
+但注意 `luci-app-pon-status` 卡片同样每 3 秒调一次 `ponctl`，另外每轮还会执行一次 `ponstat-conn`
+（awk 扫一遍 `/proc/net/nf_conntrack`）并采样两次网卡计数（首次无基准时多一次 500ms 后的补采）。
 两者叠加即约每 1.5 秒一次 `ponctl` 调用 —— 若在意，把 `SHOW_PON_OPTICS` 设 `0` 即可减半。
+连接数一栏想省掉的话，直接删 `15_pon.js` 里的 `readConns()` 调用即可，其余不受影响。
 
 ## Release 行为
 

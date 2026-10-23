@@ -1,14 +1,19 @@
 {
 	"luci-app-pon-status": {
-		"description": "Grant access to PON optical status",
+		"description": "Grant access to PON optical status and port rate for the overview page",
 		"read": {
 			"ubus": {
-				"file": [ "exec" ]
+				"file": [ "read", "exec" ],
+				"network.device": [ "status" ]
 			},
 			"uci": [ "pon" ],
 			"file": {
-				"/usr/sbin/ponctl --device * status": [ "exec" ],
-				"/usr/sbin/ponctl --device * status --json": [ "exec" ]
+				"/usr/sbin/ponctl status --json": [ "exec" ],
+				"/usr/sbin/ponctl --device * status --json": [ "exec" ],
+				"/bin/sh /usr/sbin/ponstat-conn": [ "exec" ],
+				"/usr/sbin/ponstat-conn": [ "exec" ],
+				"/sys/class/net/*/statistics/rx_bytes": [ "read" ],
+				"/sys/class/net/*/statistics/tx_bytes": [ "read" ]
 			}
 		}
 	}

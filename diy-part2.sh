@@ -179,26 +179,6 @@ for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
   if [ -f "$cfg" ]; then
     sed -i '/CONFIG_XDP_SOCKETS/d' "$cfg"
     echo "CONFIG_XDP_SOCKETS=y" >> "$cfg"
-    # --- 新增：开启 AF_ALG 用户态套接字与 EIP93 硬件驱动 ---
-    sed -i '/CONFIG_CRYPTO_USER/d; /CONFIG_CRYPTO_DEV_EIP93/d' "$cfg"
-    echo "CONFIG_CRYPTO_USER=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_USER_API=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_USER_API_HASH=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_USER_API_SKCIPHER=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_USER_API_AEAD=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_USER_API_RNG=m" >> "$cfg"
-    echo "# CONFIG_CRYPTO_USER_API_RNG_CAVP is not set" >> "$cfg"
-    
-    # 【防止 syncconfig 交互提问导致编译崩溃】
-    echo "CONFIG_CRYPTO_USER_API_ENABLE_OBSOLETE=y" >> "$cfg"
-    
-    echo "CONFIG_CRYPTO_DEV_EIP93=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_DEV_EIP93_SKCIPHER=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_DEV_EIP93_AES=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_DEV_EIP93_DES=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_DEV_EIP93_HASH=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_DEV_EIP93_HMAC=y" >> "$cfg"
-    echo "CONFIG_CRYPTO_DEV_EIP93_AEAD=y" >> "$cfg"
   fi
 done
 
@@ -307,16 +287,6 @@ CONFIG_MINIUPNPD_PCP_PEER=y
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
-
-# --- 新增：AN7581 EIP93 硬件加密引擎与混合 GCM (AF_ALG) 必需的内核模块包 ---
-CONFIG_PACKAGE_kmod-crypto-hw-airoha-eip93=y
-CONFIG_PACKAGE_kmod-crypto-hw-eip93=y
-CONFIG_PACKAGE_kmod-crypto-user=y
-CONFIG_PACKAGE_kmod-crypto-gcm=y
-CONFIG_PACKAGE_kmod-crypto-ghash=y
-CONFIG_PACKAGE_kmod-crypto-ctr=y
-CONFIG_PACKAGE_kmod-crypto-des=y
-CONFIG_PACKAGE_kmod-crypto-authenc=y
 
 EOF
   echo "✅ 公共软件包及配置已注入 .config"

@@ -63,16 +63,15 @@ if [ -f .config ]; then
   echo "CONFIG_PACKAGE_zoneinfo-asia=y    # 亚洲时区数据库" >> .config
 fi
 
-# cpuinfo 与 tempinfo 的温度计算偏移 (-10°C)
+# CPU / WiFi 温度显示偏移 (-10°C)，PON 光模块温度保持原值
 find package/ feeds/ files/ -type f \( -name "cpuinfo" -o -name "tempinfo" \) 2>/dev/null | while read -r f; do
   sed -i 's|printf("%.1f°C", [$]0 / 1000)|printf("%.1f°C", ($0 / 1000) - 10)|g' "$f"
-  sed -i 's|printf("%.1f", v)|printf("%.1f", v - 10)|g' "$f"
 done
 # airoha SoC 状态 RPC 后端脚本 (luci.airoha_npu)
 find package/ feeds/ files/ -type f -name "luci.airoha_npu" 2>/dev/null | while read -r f; do
   sed -i 's|cpu_temp=$((temp_raw / 1000))|cpu_temp=$(( (temp_raw / 1000) - 10 ))|g' "$f"
 done
-echo "✅ 温度显示偏移 (-10°C)"
+echo "✅ 温度显示偏移 (-10°C)：CPU/WiFi"
 
 # ---------------------------------------------------------
 # 4.1 自定义概览页面版本显示与超链接 (LuCI Master 架构)

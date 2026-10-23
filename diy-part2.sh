@@ -186,6 +186,8 @@ for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
     echo "CONFIG_CRYPTO_USER_API_HASH=y" >> "$cfg"
     echo "CONFIG_CRYPTO_USER_API_SKCIPHER=y" >> "$cfg"
     echo "CONFIG_CRYPTO_USER_API_AEAD=y" >> "$cfg"
+    echo "CONFIG_CRYPTO_USER_API_RNG=m" >> "$cfg"
+    echo "# CONFIG_CRYPTO_USER_API_RNG_CAVP is not set" >> "$cfg"
     echo "CONFIG_CRYPTO_DEV_EIP93=y" >> "$cfg"
     echo "CONFIG_CRYPTO_DEV_EIP93_SKCIPHER=y" >> "$cfg"
     echo "CONFIG_CRYPTO_DEV_EIP93_AES=y" >> "$cfg"

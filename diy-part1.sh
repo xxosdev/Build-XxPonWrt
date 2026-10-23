@@ -15,6 +15,26 @@ mkdir -p "$PKG_DIR"
 rm -rf dl/go-mod-cache
 
 # ---------------------------------------------------------
+# 0. libffi 兜底
+# 2026-10-19 上游把 libffi 从 packages feed 移入核心仓库
+#   (openwrt/packages 70ac3a84 "libffi: move to core repo")
+# 而 ponwrt 核心树尚未同步该包，feeds 阶段会报
+#   WARNING: No feed for source package 'libffi' found
+# 进而 python3 编译 _ctypes 时 fatal error: ffi.h: No such file or directory
+# 这里从上游核心仓库补回；将来 ponwrt 同步上游后目录已存在，自动跳过
+# ---------------------------------------------------------
+if [ ! -d package/libs/libffi ]; then
+  echo "🔧 补回 libffi -> package/libs/libffi"
+  mkdir -p package/libs/libffi
+  curl -fsSL --retry 3 --retry-delay 2 \
+    https://raw.githubusercontent.com/immortalwrt/immortalwrt/master/package/libs/libffi/Makefile \
+    -o package/libs/libffi/Makefile || { echo "::error::libffi Makefile 下载失败"; exit 1; }
+  echo "✅ libffi 已补回"
+else
+  echo "⏩ libffi 已存在于源码树，跳过"
+fi
+
+# ---------------------------------------------------------
 # 1. 插件开关 (true 为开启拉取，false 为关闭)
 # ---------------------------------------------------------
 # 系统与硬件状态

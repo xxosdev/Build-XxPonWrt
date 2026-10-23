@@ -188,6 +188,10 @@ for cfg in target/linux/airoha/config-* target/linux/generic/config-*; do
     echo "CONFIG_CRYPTO_USER_API_AEAD=y" >> "$cfg"
     echo "CONFIG_CRYPTO_USER_API_RNG=m" >> "$cfg"
     echo "# CONFIG_CRYPTO_USER_API_RNG_CAVP is not set" >> "$cfg"
+    
+    # 【防止 syncconfig 交互提问导致编译崩溃】
+    echo "CONFIG_CRYPTO_USER_API_ENABLE_OBSOLETE=y" >> "$cfg"
+    
     echo "CONFIG_CRYPTO_DEV_EIP93=y" >> "$cfg"
     echo "CONFIG_CRYPTO_DEV_EIP93_SKCIPHER=y" >> "$cfg"
     echo "CONFIG_CRYPTO_DEV_EIP93_AES=y" >> "$cfg"

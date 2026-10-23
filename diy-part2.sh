@@ -93,6 +93,23 @@ find target/linux/airoha/image/ -type f -name "*.mk" -exec sed -i 's/wpad-openss
 echo "✅ 已将 Airoha 目标设备底层 DEVICE_PACKAGES 中的 wpad-openssl 替换为 wpad-mesh-openssl"
 
 # ---------------------------------------------------------
+# 4.3 概览页「CPU 使用率（%）」行：显示 USR/SYS + 每核明细
+#
+#    ImmortalWrt 的 luci 把这一行的值写成
+#      luci.getCPUUsage → popen('top -n1 | awk ...')，只有一个总占用率
+#    这里把它改指到 files/sbin/cpuusage（随固件装到 /sbin/cpuusage）
+# ---------------------------------------------------------
+PATCH_CPUUSAGE="$(dirname "$0")/scripts/patch-luci-cpuusage.sh"
+if [ ! -f "$PATCH_CPUUSAGE" ] && [ -n "${GITHUB_WORKSPACE:-}" ]; then
+  PATCH_CPUUSAGE="$GITHUB_WORKSPACE/scripts/patch-luci-cpuusage.sh"
+fi
+if [ -f "$PATCH_CPUUSAGE" ]; then
+  PONWRT_DIR=. bash "$PATCH_CPUUSAGE" || true
+else
+  echo "::warning::未找到 $PATCH_CPUUSAGE，跳过概览页 CPU 使用率行定制"
+fi
+
+# ---------------------------------------------------------
 # 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box, dae, daed)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."

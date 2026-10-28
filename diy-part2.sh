@@ -212,6 +212,7 @@ if [ -f .config ]; then
   # 彻底清除基座与机型配置中遗留的普通 wpad，防止与 mesh 版互斥冲突
   sed -i '/CONFIG_PACKAGE_wpad-openssl/d' .config
   sed -i '/CONFIG_PACKAGE_wpad-mesh-openssl/d' .config
+  sed -i '/CONFIG_PACKAGE_socat/d' .config
 
   cat >> .config <<EOF
 
@@ -274,6 +275,10 @@ CONFIG_PACKAGE_etherwake=y
 CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_luci-app-ttyd=y
+
+# --- socat 网络转发 ---
+CONFIG_PACKAGE_socat=y
+
 CONFIG_PACKAGE_kmod-nft-queue=y
 
 # --- Daede (外挂版) ---

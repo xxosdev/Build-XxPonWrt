@@ -42,7 +42,7 @@ ADD_AIROHA_NPU=true    # luci-app-airoha-npu: Airoha SoC 状态页 (NPU/CPU等)
 
 # 科学上网与 DNS
 ADD_DAEDE=true         # luci-app-daede & dae/daed 透明代理 (保留界面)
-ADD_HONK=true          # luci-app-honk & honk: dae的下一代演进版
+ADD_HONK=false         # luci-app-honk & honk: 上游 10-25 起资产未发布，暂停
 ADD_PASSWALL2=true     # luci-app-passwall2: 科学上网
 ADD_HOMEPROXY=true     # luci-app-homeproxy: 新增 Homeproxy 面板
 ADD_MOSDNS=false       # luci-app-mosdns: DNS 防泄漏 + v2ray-geodata

@@ -213,6 +213,11 @@ if [ -f .config ]; then
   sed -i '/CONFIG_PACKAGE_wpad-openssl/d' .config
   sed -i '/CONFIG_PACKAGE_wpad-mesh-openssl/d' .config
   sed -i '/CONFIG_PACKAGE_socat/d' .config
+  # honk 暂停编译；WireGuard / GRE 基座里是 is not set，先清掉再统一注入
+  sed -i '/CONFIG_PACKAGE_honk/d; /CONFIG_PACKAGE_luci-app-honk/d' .config
+  sed -i '/CONFIG_PACKAGE_luci-proto-wireguard/d; /CONFIG_PACKAGE_wireguard-tools/d' .config
+  sed -i '/CONFIG_PACKAGE_luci-proto-gre/d; /CONFIG_PACKAGE_gre[ =]/d' .config
+  sed -i '/CONFIG_PACKAGE_kmod-gre[ =]/d; /CONFIG_PACKAGE_kmod-gre6[ =]/d' .config
 
   cat >> .config <<EOF
 
@@ -244,9 +249,9 @@ CONFIG_PACKAGE_luci-app-lucky=y
 CONFIG_PACKAGE_luci-app-homeproxy=y
 CONFIG_PACKAGE_sing-box=y
 
-# --- Honk 引擎及其依赖 (全面替代 daed，且无编译报错) ---
-CONFIG_PACKAGE_honk=y
-CONFIG_PACKAGE_luci-app-honk=y
+# --- Honk 引擎及其依赖 (上游资产未发布，暂停；恢复时去掉下面两行注释) ---
+#CONFIG_PACKAGE_honk=y
+#CONFIG_PACKAGE_luci-app-honk=y
 CONFIG_PACKAGE_ip-full=y
 CONFIG_PACKAGE_ca-bundle=y
 CONFIG_PACKAGE_kmod-nft-queue=y
@@ -308,6 +313,12 @@ CONFIG_MINIUPNPD_PCP_PEER=y
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_v2ray-geoip=y
 CONFIG_PACKAGE_v2ray-geosite=y
+
+# --- WireGuard / GRE 隧道 ---
+CONFIG_PACKAGE_luci-proto-wireguard=y
+CONFIG_PACKAGE_luci-proto-gre=y
+CONFIG_PACKAGE_kmod-gre=y
+CONFIG_PACKAGE_kmod-gre6=y
 
 EOF
   echo "✅ 公共软件包及配置已注入 .config"

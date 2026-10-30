@@ -218,6 +218,16 @@ if [ -f .config ]; then
   sed -i '/CONFIG_PACKAGE_luci-proto-wireguard/d; /CONFIG_PACKAGE_wireguard-tools/d' .config
   sed -i '/CONFIG_PACKAGE_luci-proto-gre/d; /CONFIG_PACKAGE_gre[ =]/d' .config
   sed -i '/CONFIG_PACKAGE_kmod-gre[ =]/d; /CONFIG_PACKAGE_kmod-gre6[ =]/d' .config
+  # USB 网络共享 / iPhone 网络共享：基座里多为 is not set，先清掉再统一注入
+  sed -i '/CONFIG_PACKAGE_kmod-usb-net[ =]/d' .config
+  sed -i '/CONFIG_PACKAGE_kmod-usb-net-cdc-ether/d; /CONFIG_PACKAGE_kmod-usb-net-cdc-ncm/d' .config
+  sed -i '/CONFIG_PACKAGE_kmod-usb-net-rndis/d; /CONFIG_PACKAGE_kmod-usb-net-ipheth/d' .config
+  # libimobiledevice 前缀匹配会连带清掉 libimobiledevice-utils
+  sed -i '/CONFIG_PACKAGE_usbmuxd/d; /CONFIG_PACKAGE_libimobiledevice/d' .config
+  # USB 打印机驱动 / XDP 套接字诊断：kmod-usb-net 的前缀匹配不到，单独清
+  sed -i '/CONFIG_PACKAGE_kmod-usb-printer/d' .config
+  sed -i '/CONFIG_PACKAGE_kmod-xdp-sockets-diag/d' .config
+  sed -i '/^CONFIG_KERNEL_XDP_SOCKETS/d; /^# CONFIG_KERNEL_XDP_SOCKETS is not set/d' .config
 
   cat >> .config <<EOF
 
@@ -319,6 +329,25 @@ CONFIG_PACKAGE_luci-proto-wireguard=y
 CONFIG_PACKAGE_luci-proto-gre=y
 CONFIG_PACKAGE_kmod-gre=y
 CONFIG_PACKAGE_kmod-gre6=y
+
+# --- USB 网络共享 (Android RNDIS / CDC-ECM / CDC-NCM) ---
+CONFIG_PACKAGE_kmod-usb-net=y
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
+CONFIG_PACKAGE_kmod-usb-net-rndis=y
+
+# --- iPhone 网络共享与设备通信 ---
+CONFIG_PACKAGE_kmod-usb-net-ipheth=y
+CONFIG_PACKAGE_usbmuxd=y
+CONFIG_PACKAGE_libimobiledevice=y
+CONFIG_PACKAGE_libimobiledevice-utils=y
+
+# --- USB 打印机驱动 (在线装 p910nd 的前置，usblp -> /dev/usb/lp0) ---
+CONFIG_PACKAGE_kmod-usb-printer=y
+
+# --- PF_XDP 套接字诊断 (供在线安装 dae 时满足依赖) ---
+CONFIG_KERNEL_XDP_SOCKETS=y
+CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
 
 EOF
   echo "✅ 公共软件包及配置已注入 .config"

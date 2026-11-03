@@ -109,6 +109,29 @@ else
 fi
 
 # ---------------------------------------------------------
+# 4.4 修复 kmod-usb-printer 编不进固件
+#
+#    usb.mk 里写的是 DEPENDS:=printer-support（无 + 也无 @），
+#    但 feeds 中根本不存在 printer-support 这个包。
+#    package-metadata.pl 会把它转成 "depends on PACKAGE_printer-support"，
+#    该符号恒为 n → 包在 Kconfig 里被隐藏 →
+#    CONFIG_PACKAGE_kmod-usb-printer=y 被 defconfig 静默丢弃（不报错）。
+#    删掉这个空壳依赖即可，剩下只有 @USB_SUPPORT +kmod-usb-core。
+#    只动 usb.mk 这一行，不碰 other.mk 里 kmod-lp 的同名依赖。
+# ---------------------------------------------------------
+USB_MK="package/kernel/linux/modules/usb.mk"
+if [ -f "$USB_MK" ]; then
+  sed -i 's/^  DEPENDS:=printer-support$/  DEPENDS:=/' "$USB_MK"
+  if grep -q '^  DEPENDS:=printer-support$' "$USB_MK"; then
+    echo "::warning::usb.mk 中 printer-support 依赖未能移除（上游缩进可能已变），kmod-usb-printer 可能仍编不进去"
+  else
+    echo "✅ 已移除 kmod-usb-printer 的无效依赖 printer-support"
+  fi
+else
+  echo "::warning::未找到 $USB_MK，跳过 kmod-usb-printer 修复"
+fi
+
+# ---------------------------------------------------------
 # 5. 下载预编译二进制核心 (Xray, Geoview, Sing-box, dae, daed)
 # ---------------------------------------------------------
 echo "📥 正在拉取官方预编译二进制文件与数据..."

@@ -228,6 +228,33 @@ if [ "$ADD_FTTR" = "true" ] && [ "$FTTR_PROFILE" = "h3c_hm2004-du" ]; then
     FTTR_TMP="$(mktemp -d)/fttr"
 
     clone "$FTTR_LUCI_URL" "$FTTR_TMP" "$FTTR_LUCI_BRANCH"
+
+    # 1. 先在克隆的仓库里找到 package.json 并执行前端编译
+    FTTR_UI_DIR=""
+    for d in "$FTTR_TMP" "$FTTR_TMP/package/luci-app-fttr" "$FTTR_TMP/frontend"; do
+      if [ -f "$d/package.json" ]; then
+        FTTR_UI_DIR="$d"
+        break
+      fi
+    done
+
+    if [ -n "$FTTR_UI_DIR" ]; then
+      echo "🔨 正在编译 luci-app-fttr 前端界面..."
+      pushd "$FTTR_UI_DIR" >/dev/null
+      if [ -f package-lock.json ]; then
+        npm ci --no-audit --no-fund || { echo "❌ ::error::luci-app-fttr 前端依赖安装失败"; exit 1; }
+      else
+        npm install --no-audit --no-fund || { echo "❌ ::error::luci-app-fttr 前端依赖安装失败"; exit 1; }
+      fi
+      npm run build || { echo "❌ ::error::luci-app-fttr 前端 Rsbuild 编译失败"; exit 1; }
+      rm -rf node_modules
+      popd >/dev/null
+    else
+      echo "❌ ::error::未找到 package.json，无法编译前端"
+      exit 1
+    fi
+
+    # 2. 编译完成后，再把包含 htdocs 产物的 OpenWrt 包目录整体拷贝出来
     FTTR_LUCI_SRC=""
     if [ -f "$FTTR_TMP/package/luci-app-fttr/Makefile" ]; then
       FTTR_LUCI_SRC="$FTTR_TMP/package/luci-app-fttr"
@@ -240,34 +267,12 @@ if [ "$ADD_FTTR" = "true" ] && [ "$FTTR_PROFILE" = "h3c_hm2004-du" ]; then
       cp -a "$FTTR_LUCI_SRC" "$PKG_DIR/luci-app-fttr"
       rm -rf "$PKG_DIR/luci-app-fttr/.git"
 
-      # ================= 新增：编译 luci-app-fttr 前端 (Rsbuild) =================
-      echo "🔨 正在编译 luci-app-fttr 前端界面..."
-      FTTR_UI_DIR=""
-      for d in "$PKG_DIR/luci-app-fttr" "$PKG_DIR/luci-app-fttr/frontend" "$PKG_DIR/luci-app-fttr/ui" "$FTTR_TMP" "$FTTR_TMP/frontend"; do
-        if [ -f "$d/package.json" ]; then
-          FTTR_UI_DIR="$d"
-          break
-        fi
-      done
-
-      if [ -n "$FTTR_UI_DIR" ]; then
-        pushd "$FTTR_UI_DIR" >/dev/null
-        npm ci --no-audit --no-fund || npm install --no-audit --no-fund || { echo "❌ ::error::luci-app-fttr 前端依赖安装失败"; exit 1; }
-        npm run build || { echo "❌ ::error::luci-app-fttr 前端 Rsbuild 编译失败"; exit 1; }
-        rm -rf node_modules
-        popd >/dev/null
-
-        # 校验产物是否已生成到 htdocs 目录下，防止打包漏收
-        if [ ! -f "$PKG_DIR/luci-app-fttr/htdocs/luci-static/resources/view/fttr/index.js" ]; then
-          echo "❌ ::error::前端编译完成，但未在 htdocs/luci-static/resources/view/fttr/index.js 找到产物！"
-          exit 1
-        fi
-        echo "✅ luci-app-fttr 前端编译完成，已确认生成 index.js"
-      else
-        echo "❌ ::error::未找到 package.json，无法编译前端"
+      # 校验产物是否已随包拷贝到位
+      if [ ! -f "$PKG_DIR/luci-app-fttr/htdocs/luci-static/resources/view/fttr/index.js" ]; then
+        echo "❌ ::error::未在 package/custom/luci-app-fttr/htdocs/luci-static/resources/view/fttr/index.js 找到产物！"
         exit 1
       fi
-      # =========================================================================
+      echo "✅ luci-app-fttr 前端编译完成，产物已就位"
 
       # 补 BuildPackage 扫描标记，防止 scan.mk 漏收 Makefile
       FTTR_MK="$PKG_DIR/luci-app-fttr/Makefile"

@@ -228,9 +228,16 @@ if [ "$ADD_FTTR" = "true" ] && [ "$FTTR_PROFILE" = "h3c_hm2004-du" ]; then
     FTTR_TMP="$(mktemp -d)/fttr"
 
     clone "$FTTR_LUCI_URL" "$FTTR_TMP" "$FTTR_LUCI_BRANCH"
-    if [ -f "$FTTR_TMP/Makefile" ]; then
+    FTTR_LUCI_SRC=""
+    if [ -f "$FTTR_TMP/package/luci-app-fttr/Makefile" ]; then
+      FTTR_LUCI_SRC="$FTTR_TMP/package/luci-app-fttr"
+    elif [ -f "$FTTR_TMP/Makefile" ]; then
+      FTTR_LUCI_SRC="$FTTR_TMP"
+    fi
+
+    if [ -n "$FTTR_LUCI_SRC" ]; then
       rm -rf "$PKG_DIR/luci-app-fttr"
-      cp -a "$FTTR_TMP" "$PKG_DIR/luci-app-fttr"
+      cp -a "$FTTR_LUCI_SRC" "$PKG_DIR/luci-app-fttr"
       rm -rf "$PKG_DIR/luci-app-fttr/.git"
 
       # 补 BuildPackage 扫描标记，防止 scan.mk 漏收 Makefile
@@ -297,13 +304,13 @@ find package/ feeds/ -name "Makefile" | xargs sed -i 's/+xray-core//g; s/+v2ray-
 if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   ./scripts/feeds update -i 2>/dev/null || true
   ./scripts/feeds install -a >/dev/null 2>&1 || true
-  
+
   if [ "$ADD_FTTR" = "true" ] && [ "$FTTR_PROFILE" = "h3c_hm2004-du" ] && [ -f tmp/.packageinfo ]; then
     for pkg in kmod-h3c-fmcs h3c-fmcs-firmware openwrt-fttr luci-app-fttr; do
       grep -qx "Package: $pkg" tmp/.packageinfo || echo "⚠️ 注意: $pkg 未出现在 tmp/.packageinfo 中"
     done
   fi
-  
+
   echo "=========================================="
   echo "✅ package/custom 拉取清单："
   ls -1 "$PKG_DIR"

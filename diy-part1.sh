@@ -256,9 +256,16 @@ if [ "$ADD_FTTR" = "true" ] && [ "$FTTR_PROFILE" = "h3c_hm2004-du" ]; then
         npm run build || { echo "❌ ::error::luci-app-fttr 前端 Rsbuild 编译失败"; exit 1; }
         rm -rf node_modules
         popd >/dev/null
-        echo "✅ luci-app-fttr 前端编译完成"
+
+        # 校验产物是否已生成到 htdocs 目录下，防止打包漏收
+        if [ ! -f "$PKG_DIR/luci-app-fttr/htdocs/luci-static/resources/view/fttr/index.js" ]; then
+          echo "❌ ::error::前端编译完成，但未在 htdocs/luci-static/resources/view/fttr/index.js 找到产物！"
+          exit 1
+        fi
+        echo "✅ luci-app-fttr 前端编译完成，已确认生成 index.js"
       else
-        echo "⚠️ 未找到 package.json，跳过前端编译（请检查仓库结构）"
+        echo "❌ ::error::未找到 package.json，无法编译前端"
+        exit 1
       fi
       # =========================================================================
 

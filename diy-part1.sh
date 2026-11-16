@@ -240,6 +240,28 @@ if [ "$ADD_FTTR" = "true" ] && [ "$FTTR_PROFILE" = "h3c_hm2004-du" ]; then
       cp -a "$FTTR_LUCI_SRC" "$PKG_DIR/luci-app-fttr"
       rm -rf "$PKG_DIR/luci-app-fttr/.git"
 
+      # ================= 新增：编译 luci-app-fttr 前端 (Rsbuild) =================
+      echo "🔨 正在编译 luci-app-fttr 前端界面..."
+      FTTR_UI_DIR=""
+      for d in "$PKG_DIR/luci-app-fttr" "$PKG_DIR/luci-app-fttr/frontend" "$PKG_DIR/luci-app-fttr/ui" "$FTTR_TMP" "$FTTR_TMP/frontend"; do
+        if [ -f "$d/package.json" ]; then
+          FTTR_UI_DIR="$d"
+          break
+        fi
+      done
+
+      if [ -n "$FTTR_UI_DIR" ]; then
+        pushd "$FTTR_UI_DIR" >/dev/null
+        npm ci --no-audit --no-fund || npm install --no-audit --no-fund || { echo "❌ ::error::luci-app-fttr 前端依赖安装失败"; exit 1; }
+        npm run build || { echo "❌ ::error::luci-app-fttr 前端 Rsbuild 编译失败"; exit 1; }
+        rm -rf node_modules
+        popd >/dev/null
+        echo "✅ luci-app-fttr 前端编译完成"
+      else
+        echo "⚠️ 未找到 package.json，跳过前端编译（请检查仓库结构）"
+      fi
+      # =========================================================================
+
       # 补 BuildPackage 扫描标记，防止 scan.mk 漏收 Makefile
       FTTR_MK="$PKG_DIR/luci-app-fttr/Makefile"
       if ! grep -qE 'call[[:space:]]+(Build/DefaultTargets|BuildPackage|BuildContainer|BuildCompose|KernelPackage)' "$FTTR_MK"; then
